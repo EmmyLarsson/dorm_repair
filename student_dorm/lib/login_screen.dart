@@ -458,8 +458,6 @@ class _LoginScreenState extends State<LoginScreen> {
   void _doLogin(BuildContext context) async {
     var (isError, authenToken, errorMessage) = await _authenRequest();
 
-    if (!context.mounted) return;
-
     if (isError) {
       showDialog(
         context: context,
@@ -468,10 +466,7 @@ class _LoginScreenState extends State<LoginScreen> {
         },
       );
     } else {
-      // ✅ เติมส่วนนี้: เรียก access_request ต่อ
       var result = await _accessRequest(authenToken);
-
-      if (!context.mounted) return;
 
       print(result);
 
@@ -542,47 +537,3 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 }
-  // void _doLogin(BuildContext context) async {
-  //   // ⚠️ TODO: ยังไม่เชื่อมต่อ database/API จริง — ชั่วคราวข้ามไปหน้า Home เลย
-  //   // เมื่อพร้อมเชื่อม backend แล้ว ให้ลบโค้ดด้านล่างนี้ทิ้ง แล้ว uncomment ส่วนที่ comment ไว้
-
-  //   Navigator.push(
-  //     context,
-  //     MaterialPageRoute(builder: (context) => const HomeScreen()),
-  //   );
-
-    /* ═══════════════════════════════════════════════════
-    var (isError, authenToken, errorMessage) = await _authenRequest();
-
-    if (!context.mounted) return;
-
-    if (isError) {
-      showDialog(
-        context: context,
-        builder: (context) {
-          return AlertDialog(content: Text(errorMessage));
-        },
-      );
-    } else {
-      var result = await _accessRequest(authenToken);
-
-      if (!context.mounted) return;
-
-      print(result);
-
-      if (!result.isError) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => const HomeScreen()),
-        );
-      } else {
-        showDialog(
-          context: context,
-          builder: (context) {
-            return AlertDialog(content: Text(result.errorMessage));
-          },
-        );
-      }
-    }
-    ═══════════════════════════════════════════════════ */
-  // }

@@ -1,0 +1,132 @@
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+
+const Color kNavy      = Color(0xFF1A3A6C);
+const Color kNavyDark  = Color(0xFF0F2347);
+const Color kNavyMid   = Color(0xFF3F5D9C);
+const Color kGold      = Color(0xFFFFD700);
+const Color kGray50    = Color(0xFFF9FAFB);
+const Color kGray100   = Color(0xFFF3F4F6);
+const Color kGray200   = Color(0xFFE5E7EB);
+const Color kGray400   = Color(0xFF9CA3AF);
+const Color kGray500   = Color(0xFF6B7280);
+const Color kGray700   = Color(0xFF374151);
+
+const Color kGoldLight = Color(0xFFFFE84E); // #ffe84e
+const Color kGoldMid   = Color(0xFFFFD700); // --gold
+const Color kGoldDark  = Color(0xFFF5C400); // #f5c400
+const Color kGoldTabA  = Color(0xFFFFE033); // #ffe033 (tab bar gradient start)
+const Color kGoldTabC  = Color(0xFFF7C800); // #f7c800 (tab bar gradient end)
+const Color kNavyLight = Color(0xFFEEF2FB); // --navy-light (count pill bg)
+
+class BottomNav extends StatelessWidget {
+  final double height;
+  
+  const BottomNav({super.key,
+   required this.height});
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = GoogleFonts.sarabunTextTheme(Theme.of(context).textTheme);
+    return Container(
+      height: height,
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [kGoldTabA, kGoldMid, kGoldTabC],
+          stops: [0.0, 0.6, 1.0],
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFC8A000).withValues(alpha: 0.12),
+            blurRadius: 32,
+            offset: const Offset(0, 8),
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          _navItem(textTheme, icon: Icons.home, label: 'หน้าหลัก', active: true),
+          const SizedBox(width: 4),
+          _navItem(textTheme, icon: Icons.history, label: 'ประวัติแจ้ง', active: false),
+          const SizedBox(width: 4),
+          _navItem(textTheme, icon: Icons.person_outline, label: 'โปรไฟล์', active: false),
+        ],
+      ),
+    );
+  }
+
+  Widget _navItem(
+    TextTheme textTheme, {
+    required IconData icon,
+    required String label,
+    required bool active,
+  }) {
+    // active: navy บนพื้นขาวโปร่งลอย (.nav-it.active)
+    // inactive: navy จางๆ 40% opacity ไม่มีพื้นหลัง (.nav-it)
+    final Color color = active ? kNavy : kNavyDark.withValues(alpha: 0.40);
+
+    return Expanded(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          // TODO: นำทางไปหน้าที่เกี่ยวข้อง (history.html / profile.html)
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          decoration: BoxDecoration(
+            color: active ? Colors.white.withValues(alpha: 0.60) : Colors.transparent,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: active
+                ? [
+                    BoxShadow(
+                      color: const Color(0xFFC8A000).withValues(alpha: 0.22),
+                      blurRadius: 10,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                active ? _filledVariant(icon) : icon,
+                color: color,
+                size: 22,
+              ),
+              const SizedBox(height: 2),
+              Text(
+                label,
+                style: textTheme.labelSmall?.copyWith(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                  letterSpacing: 0.03,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // แปลง icon outline → filled เมื่อ active (เลียนแบบ font-variation-settings 'FILL' 1 ของเว็บ)
+  IconData _filledVariant(IconData icon) {
+    if (icon == Icons.home) return Icons.home;
+    if (icon == Icons.history) return Icons.history;
+    if (icon == Icons.person_outline) return Icons.person;
+    return icon;
+  }
+}
+
