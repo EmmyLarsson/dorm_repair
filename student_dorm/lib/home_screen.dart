@@ -77,8 +77,6 @@ class _HomeScreenState extends State<HomeScreen> {
       body: SafeArea(
         child: Stack(
         children: [
-          // เนื้อหาหลัก: เลื่อนได้ทั้งหมดรวม header (header เป็น sticky บนสุดของ scroll ในเว็บ
-          // แต่ในแอปเราปักหมุด header ไว้คงที่ด้านบนแทน เพื่อ UX ที่ลื่นกว่าบนมือถือ)
           Column(
             children: [
               _buildHeader(textTheme),

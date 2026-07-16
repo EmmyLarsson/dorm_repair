@@ -422,7 +422,7 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Future _authenRequest() async {
+  Future<(bool, String, String)> _authenRequest() async {
     String username = _usernameEditingController.text;
     DateTime now = DateTime.now();
     String formattedDateString = DateUtil.getFormattedDate(now);
@@ -435,16 +435,113 @@ class _LoginScreenState extends State<LoginScreen> {
         .toString();
 
     print(authenRequestString);
+    print("${AppConfig.apiBaseUri}/authen/authen_request");
 
-    return false;
+    final response = await http.post(
+      Uri.parse("${AppConfig.apiBaseUri}/authen/authen_request"),
+      headers: <String, String>{
+        'Content-Type': 'application/json; charset=UTF-8',
+      },
+      body: jsonEncode(<String, String>{'authen_request': authenRequestString}),
+    );
+    final json = jsonDecode(response.body);
+
+    print(json);
+
+    return (
+      json["isError"] as bool,
+      json["data"] as String,
+      json["errorMessage"] as String,
+    );
   }
 
   void _doLogin(BuildContext context) async {
-    if (_formKey.currentState!.validate()) {
-      bool test = await _authenRequest();
+    var (isError, authenToken, errorMessage) = await _authenRequest();
+
+    if (!context.mounted) return;
+
+    if (isError) {
+      showDialog(
+        context: context,
+        builder: (context) {
+          return AlertDialog(content: Text(errorMessage));
+        },
+      );
+    } else {
+      // ✅ เติมส่วนนี้: เรียก access_request ต่อ
+      var result = await _accessRequest(authenToken);
+
+      if (!context.mounted) return;
+
+      print(result);
+
+      if (!result.isError) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const HomeScreen()),
+        );
+      } else {
+        showDialog(
+          context: context,
+          builder: (context) {
+            return AlertDialog(content: Text(result.errorMessage));
+          },
+        );
+      }
     }
   }
+   Future<({bool isError, String data, String errorMessage})> _accessRequest(
+    String authenToken,
+  ) async {
+    String username = _usernameEditingController.text;
+    String password = _passwordEditingController.text;
+    String passwordEncode = sha256.convert(utf8.encode(password)).toString();
+    String combinedString = "$username&$passwordEncode&$authenToken";
+    String authenSignature = sha256
+        .convert(utf8.encode(combinedString))
+        .toString();
 
+    print(combinedString);
+    print(authenSignature);
+
+    final response = await http.post(
+      Uri.parse("${AppConfig.apiBaseUri}/authen/access_request"),
+      headers: <String, String>{
+        "Content-Type": "application/json; charset=UTF-8",
+      },
+      body: jsonEncode(<String, String>{
+        'authen_signature': authenSignature,
+        'authen_token': authenToken,
+      }),
+    );
+
+    final json = jsonDecode(response.body);
+
+    print(json);
+
+    if (!json["isError"]) {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+
+      await prefs.setString("access_token", json["data"]["access_token"]);
+      await prefs.setString("username", _usernameEditingController.text);
+      await prefs.setString("image_url", json["data"]["image_url"] ?? "");
+
+      print("access_token${json["data"]["access_token"]}");
+      return (
+          isError: json["isError"] as bool,
+          data: json["data"]["access_token"] as String,
+          errorMessage: json["errorMessage"] as String,
+        );
+    }
+    else {
+      return (
+        isError: json["isError"] as bool,
+        data: json["data"] as String,
+        errorMessage: json["errorMessage"] as String,
+      );
+    }
+  }
+}
   // void _doLogin(BuildContext context) async {
   //   // ⚠️ TODO: ยังไม่เชื่อมต่อ database/API จริง — ชั่วคราวข้ามไปหน้า Home เลย
   //   // เมื่อพร้อมเชื่อม backend แล้ว ให้ลบโค้ดด้านล่างนี้ทิ้ง แล้ว uncomment ส่วนที่ comment ไว้
@@ -489,4 +586,3 @@ class _LoginScreenState extends State<LoginScreen> {
     }
     ═══════════════════════════════════════════════════ */
   // }
-}
