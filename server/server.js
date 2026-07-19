@@ -5,6 +5,7 @@ const express = require('express');
 const userAccountModel = require('./models/user_account');
 const jwt = require('./libs/jwt');
 const dateUtils = require('./libs/date_utils');
+const repair_request = require('./models/repair_request');
 
 const app = express();   
 app.use(bp.urlencoded({ extended: true}));
@@ -13,6 +14,30 @@ app.use(bp.json());
 
 const hostname = "127.0.0.1";
 const port = 3000;
+
+const checkAccessToken = (req, res, next) => {
+    let token = null;
+
+    if (req.headers.authorization && req.headers.authorization.split(' ')[0] === 'Bearer') {
+        token = req.headers.authorization.split(' ')[1];
+    } else if (req.query && req.query.token) {
+        token = req.query.token;
+    } else {
+        token = req.body.token;
+    }
+
+    jwt.verify(token)
+        .then((decoded) => {
+            req.decoded = decoded;
+            next();
+        }, (err) => {
+            res.json({
+                isError: false,
+                result: false,
+                errorMessage: "ยังไม่ได้เข้าสู่ระบบ"
+            });
+        });
+}
 
 app.get("/api/users", (req, res) => {
     var response = {
@@ -91,6 +116,7 @@ app.post("/api/authen/access_request", async (req, res) => {
     }
     res.send(JSON.stringify(response));
 });
+
 
 app.listen(port, () => {
     console.log("Server is running");
