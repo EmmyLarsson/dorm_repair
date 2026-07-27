@@ -19,7 +19,7 @@ class RepairRequestModel {
     required this.createdAt,
   });
 
-  DateTime getActivityDateTime() {
+  DateTime getRepairRequestDateTime() {
     DateFormat inputFormat = DateFormat('dd-MM-yyyy HH:mm:ss');
     return inputFormat.parse(createdAt);
   }
@@ -45,19 +45,19 @@ class RepairRequestModel {
 }
 
 
-class ActivityResponse {
+class RepairRequestResponse {
   bool isError = false;
   List<RepairRequestModel> data = [];
   String errorMessage = "";
 
-  ActivityResponse({
+  RepairRequestResponse({
     required this.isError,
     required this.data,
     required this.errorMessage,
   });
 
-  factory ActivityResponse.fromJson(Map<String, dynamic> json) {
-    return ActivityResponse(
+  factory RepairRequestResponse.fromJson(Map<String, dynamic> json) {
+    return RepairRequestResponse(
       isError: json['isError'],
       data: (json['data'] as List)
           .map((item) => RepairRequestModel.fromJson(item))

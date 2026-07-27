@@ -1,7 +1,7 @@
 const pool = require('../libs/db_pool');
 
 module.exports = {
-    getAllRepairRequest : async () => {
+    getAllRepairRequestbyUser : async (accountId) => {
         let conn;
         let result;
 
@@ -30,7 +30,7 @@ module.exports = {
           "  rr.report_date " +
           "ORDER BY rr.report_date DESC";
 
-            var rows = await conn.query(sql);
+            var rows = await conn.query(sql, [accountId]);
 
 
             result = {

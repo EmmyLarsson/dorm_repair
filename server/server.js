@@ -6,6 +6,7 @@ const userAccountModel = require('./models/user_account');
 const jwt = require('./libs/jwt');
 const dateUtils = require('./libs/date_utils');
 const repair_request = require('./models/repair_request');
+const progress_status = require('./models/progress_status');
 
 const app = express();   
 app.use(bp.urlencoded({ extended: true}));
@@ -117,6 +118,17 @@ app.post("/api/authen/access_request", async (req, res) => {
     res.send(JSON.stringify(response));
 });
 
+app.get("/api/progress_status/get_all", checkAccessToken, async (req, res) => {
+    const response = await progress_status.getAllProgressStatus();
+    res.json(response);
+});
+
+app.get("/api/repair_request/get_all_by_user", checkAccessToken, async (req, res) => {
+    console.log(req.decoded);
+    const accountId = req.decoded.user_id;
+    const response = await repair_request.getAllRepairRequestbyUser(accountId);
+    res.json(response);
+});
 
 app.listen(port, () => {
     console.log("Server is running");

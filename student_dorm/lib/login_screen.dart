@@ -9,17 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:student_dorm/config/app_config.dart';
 import 'package:student_dorm/utils/date_util.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
-// ── Design tokens (อ้างอิงจาก login.css ของเว็บ) ─────────────────
-const Color kNavy      = Color(0xFF1A3A6C);
-const Color kNavyDark  = Color(0xFF0F2347);
-const Color kNavyMid   = Color(0xFF3F5D9C);
-const Color kGold      = Color(0xFFFFD700);
-const Color kGray50    = Color(0xFFF9FAFB);
-const Color kGray200   = Color(0xFFE5E7EB);
-const Color kGray400   = Color(0xFF9CA3AF);
-const Color kGray500   = Color(0xFF6B7280);
-const Color kGray700   = Color(0xFF374151);
+import 'package:student_dorm/color/colors.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});

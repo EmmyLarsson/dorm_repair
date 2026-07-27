@@ -1,33 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:student_dorm/models/repair_request_model.dart';
 
 import 'dart:convert';
+import 'package:student_dorm/utils/app_api.dart';
 import 'package:student_dorm/widgets/bottom_nav.dart';
+import 'package:student_dorm/widgets/repair_info.dart';
+import 'package:student_dorm/widgets/status_card.dart';
 
-// ── Design tokens (อ้างอิงจาก home.css ของเว็บ — ชุดเดียวกับ login_screen.dart) ──
-const Color kNavy      = Color(0xFF1A3A6C);
-const Color kNavyDark  = Color(0xFF0F2347);
-const Color kNavyMid   = Color(0xFF3F5D9C);
-const Color kGold      = Color(0xFFFFD700);
-const Color kGray50    = Color(0xFFF9FAFB);
-const Color kGray100   = Color(0xFFF3F4F6);
-const Color kGray200   = Color(0xFFE5E7EB);
-const Color kGray400   = Color(0xFF9CA3AF);
-const Color kGray500   = Color(0xFF6B7280);
-const Color kGray700   = Color(0xFF374151);
-
-// สีทองสำหรับ header gradient และ bottom tab bar (อ้างอิงจาก home.css)
-const Color kGoldLight = Color(0xFFFFE84E); // #ffe84e
-const Color kGoldMid   = Color(0xFFFFD700); // --gold
-const Color kGoldDark  = Color(0xFFF5C400); // #f5c400
-const Color kGoldTabA  = Color(0xFFFFE033); // #ffe033 (tab bar gradient start)
-const Color kGoldTabC  = Color(0xFFF7C800); // #f7c800 (tab bar gradient end)
-const Color kNavyLight = Color(0xFFEEF2FB); // --navy-light (count pill bg)
-
-// สี status ของสถานะงานซ่อม (pending / working / done) อ้างอิงจาก .st-badge ในเว็บ
-const Color kPendingBg  = Color(0xFFFFF7E6);
-const Color kPendingFg  = Color(0xFFB45309);
-const Color kPendingDot = Color(0xFFF59E0B);
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -37,99 +17,194 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // ══════════════════════════════════════════
-  // Mock data — โชว์แค่การ์ดเดียว #1100067
-  // ⚠️ TODO: เชื่อมกับ API จริงภายหลัง (ตอนนี้ hardcode ตามที่ระบุ)
-  // ══════════════════════════════════════════
-  int cntPending = 1;
+  List<RepairRequestModel> repairrequestModelStore = [];
+  String? activeFilter;
+  int cntPending = 0;
   int cntWorking = 0;
   int cntDone = 0;
+  bool _isLoading = true;
+  String? _errorMessage;
 
-  String? activeFilter; // null = แสดงทั้งหมด, 'pending' | 'working' | 'done'
+  List<RepairRequestModel> get _filteredRepairs {
+    if (activeFilter == null) return repairrequestModelStore;
+    return repairrequestModelStore
+        .where((item) => item.statusName == activeFilter)
+        .toList();
+  }
 
-  final String searchQuery = '';
+  void _fetchData() async {
+  var response = await AppAPI.get("/repair_request/get_all_by_user");
+  Map<String, dynamic> json = jsonDecode(response.body);
+  RepairRequestResponse repairResponse = RepairRequestResponse.fromJson(json);
 
-  final Map<String, dynamic> repairCase = {
-    'id': '1100067',
-    'date': '07/02/2569',
-    'items': ['ไฟเสีย', 'ชักโครกชำรุด'],
-    'tags': ['งานไฟฟ้า', 'งานประปา'],
-    'status': 'pending',
-    'statusLabel': 'รอตรวจสอบ',
-  };
+  int pending = 0, working = 0, done = 0;
+  for (var item in repairResponse.data) {
+    if (item.statusId == 1) pending++;
+    else if (item.statusId == 2) working++;
+    else if (item.statusId == 3) done++;
+  }
 
-  bool get _cardVisible {
-    if (activeFilter != null && activeFilter != repairCase['status']) {
-      return false;
-    }
-    return true;
+  setState(() {
+      repairrequestModelStore = repairResponse.data;
+      cntPending = pending;
+      cntWorking = working;
+      cntDone = done;
+    });
+  }
+
+  @override
+  void initState() {
+    _fetchData();
+    super.initState();
+  }
+
+   Future<void> _fetchRepairs() async {
+    _fetchData();
   }
 
   @override
   Widget build(BuildContext context) {
-    final textTheme = GoogleFonts.sarabunTextTheme(Theme.of(context).textTheme);
+    final textTheme =
+        GoogleFonts.sarabunTextTheme(Theme.of(context).textTheme);
 
-    // ── tab-h / tab-bottom ตาม CSS: --tab-h: 64px, --tab-bottom: 20px ──
     const double tabBarHeight = 64;
     const double tabBarBottom = 20;
-    const double fabAboveTab = 12; // ระยะห่าง FAB เหนือ tab bar (ตาม .fab-wrapper bottom)
+    const double fabAboveTab = 12;
 
     return Scaffold(
       backgroundColor: kGray100,
-      // ปิด resizeToAvoidBottomInset ไม่จำเป็นในที่นี้ ปล่อย default
       body: SafeArea(
         child: Stack(
-        children: [
-          Column(
-            children: [
-              _buildHeader(textTheme),
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: EdgeInsets.fromLTRB(
-                    16,
-                    20,
-                    16,
-                    tabBarHeight + tabBarBottom + 72,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _buildStatsRow(textTheme),
-                      const SizedBox(height: 24),
-                      _buildSectionHeader(textTheme),
-                      const SizedBox(height: 12),
-                      if (_cardVisible)
-                        _buildRepairCard(textTheme)
-                      else
-                        _buildEmptyState(textTheme),
-                    ],
+          children: [
+            Column(
+              children: [
+                _buildHeader(textTheme),
+                Expanded(
+                  child: RefreshIndicator(
+                    onRefresh: _fetchRepairs,
+                    child: SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: EdgeInsets.fromLTRB(
+                        16,
+                        20,
+                        16,
+                        tabBarHeight + tabBarBottom + 72,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _buildStatsRow(textTheme),
+                          const SizedBox(height: 24),
+                          _buildSectionHeader(textTheme),
+                          const SizedBox(height: 12),
+                          _buildBody(),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ],
-          ),
-
-          // FAB "แจ้งซ่อม" — มุมขวาสุด ลอยเหนือ tab bar (ตาม .fab-wrapper: justify-content flex-end)
-          Positioned(
-            right: 20,
-            bottom: tabBarHeight + tabBarBottom + fabAboveTab,
-            child: _buildFab(textTheme),
-          ),
-
-          // Bottom tab bar — capsule ทองลอย (ตาม .bottom-nav)
-          Positioned(
-            left: 20,
-            right: 20,
-            bottom: tabBarBottom,
-            child: BottomNav(height: tabBarHeight),
-          ),
-        ],
+              ],
+            ),
+            Positioned(
+              right: 20,
+              bottom: tabBarHeight + tabBarBottom + fabAboveTab,
+              child: _buildFab(textTheme),
+            ),
+            Positioned(
+              left: 20,
+              right: 20,
+              bottom: tabBarBottom,
+              child: BottomNav(height: tabBarHeight),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  // ── Header: gradient ทอง (.app-header) + โลโก้ + ชื่อระบบ + แจ้งเตือน + ค้นหา ──
+  // ── Body: loading / error / list ──
+  Widget _buildBody() {
+    if (_isLoading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 48),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_errorMessage != null) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 48),
+        child: Column(
+          children: [
+            const Icon(Icons.wifi_off_rounded, size: 48, color: kGray400),
+            const SizedBox(height: 12),
+            Text(
+              _errorMessage!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: kGray500),
+            ),
+            const SizedBox(height: 16),
+            TextButton(
+              onPressed: _fetchRepairs,
+              child: const Text('ลองใหม่'),
+            ),
+          ],
+        ),
+      );
+    }
+    if (_filteredRepairs.isEmpty) {
+      return _buildEmptyState();
+    }
+    return RepairInfo(repairrequestModelStore: _filteredRepairs);
+  }
+
+  // ── Stats row ──
+  Widget _buildStatsRow(TextTheme textTheme) {
+    return Row(
+      children: [
+        Expanded(
+          child: StatusCard(
+            filterKey: 'รอตรวจสอบ',
+            count: cntPending,
+            label: 'รอตรวจสอบ',
+            color: const Color(0xFFF59E0B),
+            isActive: activeFilter == 'รอตรวจสอบ',
+            onTap: () => setState(() {
+              activeFilter =
+                  activeFilter == 'รอตรวจสอบ' ? null : 'รอตรวจสอบ';
+            }),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: StatusCard(
+            filterKey: 'กำลังซ่อม',
+            count: cntWorking,
+            label: 'กำลังซ่อม',
+            color: kNavyMid,
+            isActive: activeFilter == 'กำลังซ่อม',
+            onTap: () => setState(() {
+              activeFilter = activeFilter == 'กำลังซ่อม' ? null : 'กำลังซ่อม';
+            }),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: StatusCard(
+            filterKey: 'เสร็จแล้ว',
+            count: cntDone,
+            label: 'เสร็จแล้ว',
+            color: const Color(0xFF16A34A),
+            isActive: activeFilter == 'เสร็จแล้ว',
+            onTap: () => setState(() {
+              activeFilter = activeFilter == 'เสร็จแล้ว' ? null : 'เสร็จแล้ว';
+            }),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Header ──
   Widget _buildHeader(TextTheme textTheme) {
     return Container(
       width: double.infinity,
@@ -146,7 +221,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFFC8A000).withValues(alpha: 0.28),
+            color: const Color(0xFFC8A000).withOpacity(0.28),
             blurRadius: 28,
             offset: const Offset(0, 6),
           ),
@@ -161,7 +236,6 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // Logo box (พื้นขาว รอใส่โลโก้จริง)
                 Container(
                   width: 50,
                   height: 50,
@@ -170,14 +244,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     borderRadius: BorderRadius.circular(13),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.13),
+                        color: Colors.black.withOpacity(0.13),
                         blurRadius: 12,
                         offset: const Offset(0, 3),
                       ),
                     ],
                   ),
                   alignment: Alignment.center,
-                  // TODO: แทนที่ด้วย Image.asset(...) โลโก้จริง
                   child: const Icon(Icons.apartment_rounded,
                       color: kNavy, size: 26),
                 ),
@@ -196,14 +269,13 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                // ปุ่มแจ้งเตือน + จุดแดง (พื้นขาวโปร่ง ตาม .notif-btn)
                 GestureDetector(
                   onTap: () {},
                   child: Container(
                     width: 42,
                     height: 42,
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.48),
+                      color: Colors.white.withOpacity(0.48),
                       borderRadius: BorderRadius.circular(13),
                     ),
                     child: Stack(
@@ -233,8 +305,6 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
           ),
-
-          // ช่องค้นหา — ส่วนสีขาวต่อท้าย header (ตาม .hdr-search)
           Container(
             padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
             decoration: const BoxDecoration(
@@ -258,8 +328,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: TextField(
-                      style: textTheme.bodyMedium?.copyWith(
-                          fontSize: 14, color: kNavy),
+                      style: textTheme.bodyMedium
+                          ?.copyWith(fontSize: 14, color: kNavy),
                       decoration: InputDecoration(
                         hintText: 'ค้นหาหมายเลข Case หรือรายการซ่อม…',
                         hintStyle: GoogleFonts.sarabun(
@@ -279,104 +349,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ── Stats row: 3 การ์ดสถิติ กรองได้ ─────────────────────────────
-  Widget _buildStatsRow(TextTheme textTheme) {
-    return Row(
-      children: [
-        Expanded(
-          child: _statCard(
-            textTheme,
-            filterKey: 'pending',
-            count: cntPending,
-            label: 'รอตรวจสอบ',
-            color: const Color(0xFFF59E0B),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _statCard(
-            textTheme,
-            filterKey: 'working',
-            count: cntWorking,
-            label: 'กำลังซ่อม',
-            color: kNavyMid,
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _statCard(
-            textTheme,
-            filterKey: 'done',
-            count: cntDone,
-            label: 'เสร็จแล้ว',
-            color: const Color(0xFF16A34A),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _statCard(
-    TextTheme textTheme, {
-    required String filterKey,
-    required int count,
-    required String label,
-    required Color color,
-  }) {
-    final bool isActive = activeFilter == filterKey;
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          activeFilter = isActive ? null : filterKey;
-        });
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
-        decoration: BoxDecoration(
-          color: isActive ? color.withValues(alpha: 0.10) : Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: isActive ? color : kGray200,
-            width: isActive ? 1.5 : 1,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: kNavy.withValues(alpha: 0.05),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Column(
-          children: [
-            Text(
-              '$count',
-              style: textTheme.titleLarge?.copyWith(
-                fontSize: 22,
-                fontWeight: FontWeight.w800,
-                color: color,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: textTheme.bodySmall?.copyWith(
-                fontSize: 11.5,
-                fontWeight: FontWeight.w600,
-                color: kGray500,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ── Section header: "งานซ่อมปัจจุบัน" + count pill ──────────────
+  // ── Section header ──
   Widget _buildSectionHeader(TextTheme textTheme) {
-    final visibleCount = _cardVisible ? 1 : 0;
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -395,7 +369,7 @@ class _HomeScreenState extends State<HomeScreen> {
             borderRadius: BorderRadius.circular(999),
           ),
           child: Text(
-            '$visibleCount',
+            '${_filteredRepairs.length}',
             style: textTheme.labelMedium?.copyWith(
               fontSize: 12.5,
               fontWeight: FontWeight.w700,
@@ -407,251 +381,34 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ── การ์ดรายการซ่อม (โชว์แค่ #1100067) ───────────────────────────
-  Widget _buildRepairCard(TextTheme textTheme) {
-    final List<String> items = repairCase['items'];
-    final List<String> tags = repairCase['tags'];
-
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(18),
-      elevation: 0,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(18),
-        onTap: () {
-          // TODO: นำทางไปหน้ารายละเอียด Case
-        },
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: kGray200),
-            boxShadow: [
-              BoxShadow(
-                color: kNavy.withValues(alpha: 0.06),
-                blurRadius: 16,
-                offset: const Offset(0, 6),
-              ),
-            ],
-          ),
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // แถวที่ 1: รหัส Case + วันที่แจ้ง
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'รหัส Case',
-                        style: textTheme.bodySmall?.copyWith(
-                          fontSize: 11.5,
-                          color: kGray500,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '#${repairCase['id']}',
-                        style: textTheme.titleMedium?.copyWith(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w700,
-                          color: kNavy,
-                        ),
-                      ),
-                    ],
-                  ),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        'วันที่แจ้ง',
-                        style: textTheme.bodySmall?.copyWith(
-                          fontSize: 11.5,
-                          color: kGray500,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        repairCase['date'],
-                        style: textTheme.bodyMedium?.copyWith(
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w600,
-                          color: kGray700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-
-              Container(
-                margin: const EdgeInsets.symmetric(vertical: 14),
-                height: 1,
-                color: kGray100,
-              ),
-
-              // แถวที่ 2: รายการซ่อม + ประเภทงาน
-              _infoRow(textTheme, 'รายการซ่อม', items.join(', ')),
-              const SizedBox(height: 10),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SizedBox(
-                    width: 84,
-                    child: Text(
-                      'ประเภทงาน',
-                      style: textTheme.bodySmall?.copyWith(
-                        fontSize: 13,
-                        color: kGray500,
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: tags.map((t) => _tagChip(textTheme, t)).toList(),
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 16),
-
-              // แถวที่ 3: badge สถานะ + ลูกศร
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: kPendingBg,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 7,
-                          height: 7,
-                          decoration: const BoxDecoration(
-                            color: kPendingDot,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          repairCase['statusLabel'],
-                          style: textTheme.labelMedium?.copyWith(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w700,
-                            color: kPendingFg,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: kGray100,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.chevron_right,
-                        size: 20, color: kNavy),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _infoRow(TextTheme textTheme, String key, String value) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          width: 84,
-          child: Text(
-            key,
-            style: textTheme.bodySmall?.copyWith(
-              fontSize: 13,
-              color: kGray500,
-            ),
-          ),
-        ),
-        Expanded(
-          child: Text(
-            value,
-            style: textTheme.bodyMedium?.copyWith(
-              fontSize: 13.5,
-              fontWeight: FontWeight.w600,
-              color: kGray700,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _tagChip(TextTheme textTheme, String label) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-      decoration: BoxDecoration(
-        color: kNavyMid.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(7),
-      ),
-      child: Text(
-        label,
-        style: textTheme.labelSmall?.copyWith(
-          fontSize: 11.5,
-          fontWeight: FontWeight.w600,
-          color: kNavyMid,
-        ),
-      ),
-    );
-  }
-
-  // ── Empty state (กรณีไม่มีการ์ดตรงกับ filter) ────────────────────
-  Widget _buildEmptyState(TextTheme textTheme) {
+  // ── Empty state ──
+  Widget _buildEmptyState() {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 48),
       child: Column(
         children: [
           const Icon(Icons.search_off, size: 48, color: kGray400),
           const SizedBox(height: 12),
-          Text(
+          const Text(
             'ไม่พบรายการที่ค้นหา',
-            style: textTheme.titleSmall?.copyWith(
+            style: TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.w700,
               color: kGray700,
             ),
           ),
           const SizedBox(height: 4),
-          Text(
-            'ลองพิมพ์รหัส Case\nหรือชื่อรายการซ่อมใหม่อีกครั้ง',
+          const Text(
+            'ไม่มีรายการซ่อมในสถานะนี้',
             textAlign: TextAlign.center,
-            style: textTheme.bodySmall?.copyWith(
-              fontSize: 12.5,
-              color: kGray500,
-              height: 1.5,
-            ),
+            style: TextStyle(fontSize: 12.5, color: kGray500, height: 1.5),
           ),
         ],
       ),
     );
   }
 
-  // ── FAB "แจ้งซ่อม" ── มุมขวาสุด, capsule เดี่ยว ไม่เต็มความกว้าง (ตาม .fab) ──
+  // ── FAB ──
   Widget _buildFab(TextTheme textTheme) {
     return Container(
       height: 50,
@@ -664,7 +421,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         boxShadow: [
           BoxShadow(
-            color: kNavy.withValues(alpha: 0.4),
+            color: kNavy.withOpacity(0.4),
             blurRadius: 24,
             offset: const Offset(0, 6),
           ),
@@ -675,7 +432,7 @@ class _HomeScreenState extends State<HomeScreen> {
         child: InkWell(
           borderRadius: BorderRadius.circular(999),
           onTap: () {
-            // TODO: นำทางไปหน้าแจ้งซ่อม เช่น report_submit
+            // TODO: นำทางไปหน้าแจ้งซ่อม
           },
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 22, 0),
