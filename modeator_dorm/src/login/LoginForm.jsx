@@ -1,21 +1,108 @@
-import { useLoginForm } from './useLoginForm';
-export default function LoginForm() {
-  const {
-    username,
-    setUsername,
-    password,
-    setPassword,
-    rememberMe,
-    setRememberMe,
-    errors,
-    showPassword,
-    togglePasswordVisibility,
-    isSubmitting,
-    submitStatus,
-    submitMessage,
-    handleSubmit,
-  } = useLoginForm();
+import { useState, useEffect } from 'react';
+import { useNavigate } from "react-router-dom";
 
+export default function LoginForm() {
+  // ════════════════════════════════════════════════════════════
+  // 1. นำ Logic จากฝั่ง Backend มาวางแทนที่การดึงค่าจาก useLoginForm()
+  // ════════════════════════════════════════════════════════════
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
+  const [errors, setErrors] = useState({ username: "", password: "" });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // ปรับชื่อตัวแปรแจ้งเตือนจาก formError ให้เป็น submitStatus/submitMessage 
+  // เพื่อให้ตรงกับตัวแปรที่ UI โค้ดเดิมต้องการพอดี (จะได้ไม่ต้องแก้ UI)
+  const [submitStatus, setSubmitStatus] = useState("idle"); 
+  const [submitMessage, setSubmitMessage] = useState("");
+
+  // ฟังก์ชันสลับการมองเห็นรหัสผ่านที่ UI โค้ดเดิมเรียกใช้
+  const togglePasswordVisibility = () => setShowPassword((v) => !v);
+
+  // โหลดค่า "จดจำฉัน" จาก localStorage
+  useEffect(() => {
+    const savedUsername = localStorage.getItem("staff_remember_username");
+    if (savedUsername) {
+      setUsername(savedUsername);
+      setRememberMe(true);
+    }
+  }, []);
+
+  function validate() {
+    const next = { username: "", password: "" };
+    let valid = true;
+
+    if (!username.trim()) {
+      next.username = "กรุณากรอกชื่อผู้ใช้งาน";
+      valid = false;
+    } else if (!password.trim()) {
+      next.password = "กรุณากรอกรหัสผ่าน";
+      valid = false;
+    } else if (password.length < 6) {
+      next.password = "รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร";
+      valid = false;
+    }
+
+    setErrors(next);
+    return valid;
+  }
+
+
+ async function handleLogin(e) {
+    e.preventDefault(); // ป้องกันหน้าเว็บรีเฟรช
+    setSubmitStatus("idle");
+    setSubmitMessage("");
+
+    if (!validate()) return; // ถ้า validate ไม่ผ่านให้หยุดการทำงาน
+
+    setIsSubmitting(true); // 3. เปิดแสดงวงล้อ Loading
+
+    try {
+      const authResult = await authenRequest(username);
+
+      if (authResult.isError) {
+        // 2. เปลี่ยนมาใช้ setSubmitMessage และ setSubmitStatus
+        setSubmitMessage(authResult.errorMessage);
+        setSubmitStatus("error");
+        setIsSubmitting(false); // ปิด Loading เมื่อ Error
+        return;
+      }
+
+      const authenToken = authResult.data;
+      const result = await accessRequest(username, password, authenToken);
+      console.log(result);
+
+      if (!result.isError) {
+        // เพิ่มจดจำฉัน (จำ username ลงเครื่องถ้าผู้ใช้ติ๊กถูก)
+        if (rememberMe) {
+          localStorage.setItem("staff_remember_username", username.trim());
+        } else {
+          localStorage.removeItem("staff_remember_username");
+        }
+        
+        setSubmitStatus("success");
+        setSubmitMessage("เข้าสู่ระบบสำเร็จ กำลังพาไปหน้าหลัก...");
+        
+        setTimeout(() => {
+          navigate("/home");
+        }, 1000);
+      } else {
+        // 2. เปลี่ยนมาใช้ setSubmitMessage และ setSubmitStatus
+        setSubmitMessage(result.errorMessage);
+        setSubmitStatus("error");
+      }
+    } catch (err) {
+      setSubmitMessage("เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์");
+      setSubmitStatus("error");
+    } finally {
+      setIsSubmitting(false); // 3. ปิดแสดงวงล้อ Loading เสมอเมื่อจบการทำงาน
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════
+  // 2. ส่วนของ UI (JSX) คงเดิม 100% ไม่มีการแก้ไขใดๆ ทั้งสิ้น
+  // ════════════════════════════════════════════════════════════
   return (
     <section className="flex flex-1 basis-1/2 flex-col items-center justify-center bg-[#f7f9ff] p-6">
       <div className="w-full max-w-[420px] rounded-[20px] bg-white p-9 shadow-[0_10px_30px_rgba(26,64,194,0.12)]">
@@ -34,7 +121,7 @@ export default function LoginForm() {
           </p>
         </header>
 
-        <form onSubmit={handleSubmit} noValidate>
+        <form onSubmit={handleLogin} noValidate>
           {/* ══════════════════════════════════════════
               STEP 1: ชื่อผู้ใช้งาน (Username)
               ⚠️ TODO(backend): ค่านี้จะถูกส่งไปเทียบกับคอลัมน์ `username`

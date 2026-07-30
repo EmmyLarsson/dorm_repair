@@ -12,9 +12,10 @@ const _statusBar = {
 class RepairInfo extends StatelessWidget {
   const RepairInfo({super.key, required this.repairrequestModelStore});
   final List<RepairRequestModel> repairrequestModelStore;
-
+  
   @override
   Widget build(BuildContext context) {
+    print(repairrequestModelStore.length);
     final textTheme = GoogleFonts.sarabunTextTheme(Theme.of(context).textTheme);
     return ListView.builder(
       shrinkWrap: true,
@@ -22,6 +23,7 @@ class RepairInfo extends StatelessWidget {
       itemCount: repairrequestModelStore.length,
       itemBuilder: (context, index) {
         final RepairRequestModel item = repairrequestModelStore[index];
+        print(item.createdAt);
         final barColor = _statusBar[item.statusName] ?? kNavyMid;
 
         return Container(
@@ -47,32 +49,73 @@ class RepairInfo extends StatelessWidget {
                     ),
                   ],
                 ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Container(
-                      width: 5,
-                      decoration: BoxDecoration(
-                        color: barColor,
-                        borderRadius: const BorderRadius.only(
-                          topLeft: Radius.circular(18),
-                          bottomLeft: Radius.circular(18),
+                child: IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Container(
+                        width: 5,
+                        decoration: BoxDecoration(
+                          color: barColor,
+                          borderRadius: const BorderRadius.only(
+                            topLeft: Radius.circular(18),
+                            bottomLeft: Radius.circular(18),
+                          ),
                         ),
                       ),
-                    ),
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'รหัส Case',
+                                      style: textTheme.bodySmall?.copyWith(
+                                        fontSize: 11.5,
+                                        color: kGray500,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      '#${item.caseCode}',
+                                      style: textTheme.titleMedium?.copyWith(
+                                        fontSize: 17,
+                                        fontWeight: FontWeight.w700,
+                                        color: kNavy,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'ปัญหา',
+                                      style: textTheme.bodySmall?.copyWith(
+                                        fontSize: 11.5,
+                                        color: kGray500,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      item.description,
+                                      style: textTheme.bodyMedium?.copyWith(
+                                        fontSize: 13.5,
+                                        fontWeight: FontWeight.w600,
+                                        color: kGray700,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
                                 children: [
                                   Text(
-                                    'รหัส Case',
+                                    'วันที่แจ้ง',
                                     style: textTheme.bodySmall?.copyWith(
                                       fontSize: 11.5,
                                       color: kGray500,
@@ -80,71 +123,32 @@ class RepairInfo extends StatelessWidget {
                                   ),
                                   const SizedBox(height: 2),
                                   Text(
-                                    '#${item.caseCode}',
-                                    style: textTheme.titleMedium?.copyWith(
-                                      fontSize: 17,
-                                      fontWeight: FontWeight.w700,
-                                      color: kNavy,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    'ปัญหา',
-                                    style: textTheme.bodySmall?.copyWith(
-                                      fontSize: 11.5,
-                                      color: kGray500,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    item.description,
+                                    item.createdAt,
                                     style: textTheme.bodyMedium?.copyWith(
                                       fontSize: 13.5,
                                       fontWeight: FontWeight.w600,
                                       color: kGray700,
                                     ),
                                   ),
+                                  const SizedBox(height: 12),
+                                  Container(
+                                    width: 32,
+                                    height: 32,
+                                    decoration: const BoxDecoration(
+                                      color: kGray100,
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(Icons.chevron_right,
+                                        size: 20, color: kNavy),
+                                  ),
                                 ],
                               ),
-                            ),
-                            const SizedBox(width: 12),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                Text(
-                                  'วันที่แจ้ง',
-                                  style: textTheme.bodySmall?.copyWith(
-                                    fontSize: 11.5,
-                                    color: kGray500,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  item.createdAt,
-                                  style: textTheme.bodyMedium?.copyWith(
-                                    fontSize: 13.5,
-                                    fontWeight: FontWeight.w600,
-                                    color: kGray700,
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                Container(
-                                  width: 32,
-                                  height: 32,
-                                  decoration: const BoxDecoration(
-                                    color: kGray100,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(Icons.chevron_right,
-                                      size: 20, color: kNavy),
-                                ),
-                              ],
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),

@@ -95,6 +95,7 @@ app.post("/api/authen/access_request", async (req, res) => {
                 user_id: result.data[0].account_id,
                 username: result.data[0].username,
                 image_url: result.data[0].profile_image,
+                role_id: result.data[0].role_id,
                 date: dateUtils.getCurrentDateForToken()
             };
 
@@ -127,6 +128,7 @@ app.get("/api/repair_request/get_all_by_user", checkAccessToken, async (req, res
     console.log(req.decoded);
     const accountId = req.decoded.user_id;
     const response = await repair_request.getAllRepairRequestbyUser(accountId);
+    console.log(response);
     res.json(response);
 });
 

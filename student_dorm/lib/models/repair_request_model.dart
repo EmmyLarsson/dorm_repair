@@ -31,15 +31,22 @@ class RepairRequestModel {
     if (rawTypes.isNotEmpty) {
       parsedTypes = rawTypes.split(',').map((e) => e.trim()).toList();
     }
-    
+    // print(json['request_id']);
+    // print(json['case_code']);
+    // print(parsedTypes);
+    // print(json['description']);
+    // print(json['progress_status_id']);
+    // print(json['progress_status_name']);
+    // print(json['report_date']);
+
     return RepairRequestModel(
       requestId: json['request_id'] as int,
       caseCode: json['case_code'] as String,
       typeNames: parsedTypes,
       description: json['description'] as String? ?? "",
-      statusId: json['progress_detail_id'] as int? ?? 1,
-      statusName: json['status_name'] as String? ?? "รอตรวจสอบ",
-      createdAt: json['created_at'] as String,
+      statusId: json['progress_status_id'] as int? ?? 1,
+      statusName: json['progress_status_name'] as String? ?? "รอตรวจสอบ",
+      createdAt: json['report_date'] as String,
     );
   }
 }
@@ -57,12 +64,13 @@ class RepairRequestResponse {
   });
 
   factory RepairRequestResponse.fromJson(Map<String, dynamic> json) {
+    // print(json['data']);
     return RepairRequestResponse(
       isError: json['isError'],
       data: (json['data'] as List)
           .map((item) => RepairRequestModel.fromJson(item))
           .toList(),
       errorMessage: json['errorMessage'],
-    ); // ActivityResponse
+    );
   }
 }

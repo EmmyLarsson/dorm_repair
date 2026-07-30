@@ -8,7 +8,6 @@ import 'package:student_dorm/widgets/bottom_nav.dart';
 import 'package:student_dorm/widgets/repair_info.dart';
 import 'package:student_dorm/widgets/status_card.dart';
 
-
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -33,18 +32,24 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _fetchData() async {
-  var response = await AppAPI.get("/repair_request/get_all_by_user");
-  Map<String, dynamic> json = jsonDecode(response.body);
-  RepairRequestResponse repairResponse = RepairRequestResponse.fromJson(json);
+    var response = await AppAPI.get("/repair_request/get_all_by_user");
+    Map<String, dynamic> json = jsonDecode(response.body);
+    // print(json);
+    RepairRequestResponse repairResponse = RepairRequestResponse.fromJson(json);
+    // print(repairResponse.data.length);
+    
+    int pending = 0, working = 0, done = 0;
+    for (var item in repairResponse.data) {
+      if (item.statusId == 1)
+        pending++;
+      else if (item.statusId == 2)
+        working++;
+      else if (item.statusId == 3)
+        done++;
+    }
 
-  int pending = 0, working = 0, done = 0;
-  for (var item in repairResponse.data) {
-    if (item.statusId == 1) pending++;
-    else if (item.statusId == 2) working++;
-    else if (item.statusId == 3) done++;
-  }
-
-  setState(() {
+    setState(() {
+      _isLoading = false;
       repairrequestModelStore = repairResponse.data;
       cntPending = pending;
       cntWorking = working;
@@ -58,14 +63,13 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
   }
 
-   Future<void> _fetchRepairs() async {
+  Future<void> _fetchRepairs() async {
     _fetchData();
   }
 
   @override
   Widget build(BuildContext context) {
-    final textTheme =
-        GoogleFonts.sarabunTextTheme(Theme.of(context).textTheme);
+    final textTheme = GoogleFonts.sarabunTextTheme(Theme.of(context).textTheme);
 
     const double tabBarHeight = 64;
     const double tabBarBottom = 20;
@@ -143,10 +147,7 @@ class _HomeScreenState extends State<HomeScreen> {
               style: const TextStyle(color: kGray500),
             ),
             const SizedBox(height: 16),
-            TextButton(
-              onPressed: _fetchRepairs,
-              child: const Text('ลองใหม่'),
-            ),
+            TextButton(onPressed: _fetchRepairs, child: const Text('ลองใหม่')),
           ],
         ),
       );
@@ -154,7 +155,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_filteredRepairs.isEmpty) {
       return _buildEmptyState();
     }
-    return RepairInfo(repairrequestModelStore: _filteredRepairs);
+    return RepairInfo(repairrequestModelStore: repairrequestModelStore);
   }
 
   // ── Stats row ──
@@ -169,8 +170,7 @@ class _HomeScreenState extends State<HomeScreen> {
             color: const Color(0xFFF59E0B),
             isActive: activeFilter == 'รอตรวจสอบ',
             onTap: () => setState(() {
-              activeFilter =
-                  activeFilter == 'รอตรวจสอบ' ? null : 'รอตรวจสอบ';
+              activeFilter = activeFilter == 'รอตรวจสอบ' ? null : 'รอตรวจสอบ';
             }),
           ),
         ),
@@ -251,8 +251,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                   alignment: Alignment.center,
-                  child: const Icon(Icons.apartment_rounded,
-                      color: kNavy, size: 26),
+                  child: const Icon(
+                    Icons.apartment_rounded,
+                    color: kNavy,
+                    size: 26,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -282,8 +285,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       clipBehavior: Clip.none,
                       children: [
                         const Center(
-                          child: Icon(Icons.notifications_outlined,
-                              color: kNavy, size: 22),
+                          child: Icon(
+                            Icons.notifications_outlined,
+                            color: kNavy,
+                            size: 22,
+                          ),
                         ),
                         Positioned(
                           top: 8,
@@ -328,12 +334,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: TextField(
-                      style: textTheme.bodyMedium
-                          ?.copyWith(fontSize: 14, color: kNavy),
+                      style: textTheme.bodyMedium?.copyWith(
+                        fontSize: 14,
+                        color: kNavy,
+                      ),
                       decoration: InputDecoration(
                         hintText: 'ค้นหาหมายเลข Case หรือรายการซ่อม…',
                         hintStyle: GoogleFonts.sarabun(
-                            fontSize: 14, color: const Color(0xFFB0BAC8)),
+                          fontSize: 14,
+                          color: const Color(0xFFB0BAC8),
+                        ),
                         border: InputBorder.none,
                         isDense: true,
                       ),
