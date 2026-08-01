@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { authenRequest, accessRequest,} from "../services/authService";
 
-export default function LoginForm() {
-  // ════════════════════════════════════════════════════════════
-  // 1. นำ Logic จากฝั่ง Backend มาวางแทนที่การดึงค่าจาก useLoginForm()
-  // ════════════════════════════════════════════════════════════
+export default function LoginPage() {
+  const navigate = useNavigate();
+
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -85,7 +85,7 @@ export default function LoginForm() {
         setSubmitMessage("เข้าสู่ระบบสำเร็จ กำลังพาไปหน้าหลัก...");
         
         setTimeout(() => {
-          navigate("/home");
+          navigate("/moderator/home");
         }, 1000);
       } else {
         // 2. เปลี่ยนมาใช้ setSubmitMessage และ setSubmitStatus

@@ -1,159 +1,172 @@
-import { useState, useEffect, useCallback } from 'react';
+import { AppConfig } from "../config/appConfig";
+async function sha256(text) {
+  const data = new TextEncoder().encode(text);
 
-/**
- * useLoginForm
- * ─────────────────────────────────────────────────────────
- * Custom hook ที่รวม logic ทั้งหมดของฟอร์ม login เจ้าหน้าที่หอพัก
- * แปลมาจาก modeator_login.js ทีละ section:
- *   1. Remember-me (โหลด/บันทึก username ที่จำไว้)
- *   2. Toggle แสดง/ซ่อนรหัสผ่าน
- *   3. Validation
- *   4. Submit + loading state
- * ─────────────────────────────────────────────────────────
- */
-
-const REMEMBER_KEY = 'staff_remember_username';
-
-export function useLoginForm() {
-  // ── STEP 1: State พื้นฐานของฟอร์ม ──
-  // เทียบเท่ากับ usernameInput.value / passwordInput.value ในเว็บ
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [rememberMe, setRememberMe] = useState(false);
-
-  // ── STEP 2: State สำหรับ error message ราย field ──
-  // เทียบเท่ากับ usernameError.textContent / passwordError.textContent
-  const [errors, setErrors] = useState({ username: '', password: '' });
-
-  // ── STEP 3: State ควบคุมการแสดง/ซ่อนรหัสผ่าน ──
-  // เทียบเท่ากับการสลับ passwordInput.type ระหว่าง 'password' / 'text'
-  const [showPassword, setShowPassword] = useState(false);
-
-  // ── STEP 4: State ระหว่างกำลัง submit (loading) ──
-  // เทียบเท่ากับ submitBtn.disabled + เปลี่ยน innerHTML ตอนกำลังส่ง
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // ── STEP 5: state แสดงผลลัพธ์หลัง submit (แทนการใช้ alert() ของเว็บเดิม) ──
-  // 'idle' | 'success' | 'error'
-  const [submitStatus, setSubmitStatus] = useState('idle');
-  const [submitMessage, setSubmitMessage] = useState('');
-
-  // ══════════════════════════════════════════════════════
-  // โหลดค่า "จดจำฉัน" ตอนโหลดหน้าครั้งแรก
-  // (เทียบเท่ากับ localStorage.getItem('staff_remember_username') ในเว็บ)
-  // ══════════════════════════════════════════════════════
-  useEffect(() => {
-    const savedUsername = localStorage.getItem(REMEMBER_KEY);
-    if (savedUsername) {
-      setUsername(savedUsername);
-      setRememberMe(true);
-    }
-  }, []);
-
-  // ══════════════════════════════════════════════════════
-  // Toggle แสดง/ซ่อนรหัสผ่าน
-  // ══════════════════════════════════════════════════════
-  const togglePasswordVisibility = useCallback(() => {
-    setShowPassword((prev) => !prev);
-  }, []);
-
-  // ══════════════════════════════════════════════════════
-  // Validation — ตรงกับฟังก์ชัน validate() ในเว็บทุกเงื่อนไข
-  // ══════════════════════════════════════════════════════
-  const validate = useCallback(() => {
-    const nextErrors = { username: '', password: '' };
-    let valid = true;
-
-    if (!username.trim()) {
-      nextErrors.username = 'กรุณากรอกชื่อผู้ใช้งาน';
-      valid = false;
-    }
-
-    if (!password.trim()) {
-      nextErrors.password = 'กรุณากรอกรหัสผ่าน';
-      valid = false;
-    } else if (password.length < 6) {
-      nextErrors.password = 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร';
-      valid = false;
-    }
-
-    setErrors(nextErrors);
-    return valid;
-  }, [username, password]);
-
-  // ══════════════════════════════════════════════════════
-  // Submit — ตรงกับ form.addEventListener('submit', ...) ในเว็บ
-  // ══════════════════════════════════════════════════════
-  const handleSubmit = useCallback(
-    async (e) => {
-      e.preventDefault();
-      setSubmitStatus('idle');
-      setSubmitMessage('');
-
-      if (!validate()) return;
-
-      // จัดการ "จดจำฉัน" — เหมือนเว็บเป๊ะ: บันทึก/ลบ username ใน localStorage
-      if (rememberMe) {
-        localStorage.setItem(REMEMBER_KEY, username.trim());
-      } else {
-        localStorage.removeItem(REMEMBER_KEY);
-      }
-
-      setIsSubmitting(true);
-
-      try {
-        // ⚠️ TODO(backend step 1/3): เปลี่ยนบล็อกจำลอง (mock) นี้เป็นการเรียก
-        // API จริงที่ยิงไปยัง Node.js/Express เช่น:
-        //
-        //   const res = await fetch('/api/auth/staff-login', {
-        //     method: 'POST',
-        //     headers: { 'Content-Type': 'application/json' },
-        //     body: JSON.stringify({
-        //       username: username.trim(),
-        //       password, // ⚠️ ส่งผ่าน HTTPS เท่านั้น ห้ามส่ง plaintext ผ่าน HTTP
-        //     }),
-        //   });
-        //   const data = await res.json();
-        //   if (!res.ok) throw new Error(data.message || 'เข้าสู่ระบบไม่สำเร็จ');
-        //
-        // ⚠️ TODO(backend step 2/3): ฝั่ง Node.js ควร query ตาราง `staff_users`
-        // ใน MySQL ด้วย username แล้วเทียบรหัสผ่านที่ hash ไว้ (เช่น bcrypt.compare)
-        // ห้ามเก็บรหัสผ่านเป็น plaintext ในฐานข้อมูลเด็ดขาด
-        //
-        // ⚠️ TODO(backend step 3/3): เมื่อ login สำเร็จ backend ควรส่ง JWT หรือ
-        // session token กลับมา แล้วเก็บไว้ (เช่น httpOnly cookie หรือ
-        // localStorage ชั่วคราว) เพื่อใช้แนบไปกับ request อื่นๆ ที่ต้อง auth
-        await new Promise((resolve) => setTimeout(resolve, 1200)); // demo delay
-
-        setSubmitStatus('success');
-        setSubmitMessage('เข้าสู่ระบบสำเร็จ (Demo) — เชื่อมต่อ API จริงได้ที่ useLoginForm.js');
-
-        // ⚠️ TODO: เมื่อมี react-router แล้ว ให้ navigate ไปหน้า dashboard ตรงนี้ เช่น
-        //   navigate('/staff/dashboard');
-        // ตอนนี้ยังไม่มี routing จึงปล่อยเป็น comment ไว้ก่อน
-      } catch (err) {
-        setSubmitStatus('error');
-        setSubmitMessage(err.message || 'เข้าสู่ระบบไม่สำเร็จ กรุณาลองใหม่');
-      } finally {
-        setIsSubmitting(false);
-      }
-    },
-    [username, password, rememberMe, validate]
+  const hashBuffer = await window.crypto.subtle.digest(
+    "SHA-256",
+    data
   );
 
+  const hashArray = Array.from(
+    new Uint8Array(hashBuffer)
+  );
+
+  return hashArray
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+/**
+ * วันที่รูปแบบ dd-MM-yyyy
+ *
+ * ต้องตรงกับ DateUtil.getFormattedDate() ฝั่ง Flutter
+ */
+function getFormattedDate(date = new Date()) {
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(
+    2,
+    "0"
+  );
+  const year = date.getFullYear();
+
+  return `${day}-${month}-${year}`;
+}
+
+/**
+ * อ่าน JSON จาก response อย่างปลอดภัย
+ */
+async function parseResponse(response) {
+  let json;
+
+  try {
+    json = await response.json();
+  } catch {
+    throw new Error(
+      `Server ตอบกลับมาไม่ใช่ JSON (${response.status})`
+    );
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      json.errorMessage ||
+        `เรียก API ไม่สำเร็จ (${response.status})`
+    );
+  }
+
+  return json;
+}
+
+/**
+ * ขั้นที่ 1:
+ * ส่ง authen_request ไปขอ authen_token
+ *
+ * Flutter เดิม:
+ * username&dd-MM-yyyy
+ * แล้ว SHA-256
+ */
+export async function authenRequest(username) {
+  const cleanUsername = username.trim();
+  const formattedDate = getFormattedDate(new Date());
+
+  const combinedString =
+    `${cleanUsername}&${formattedDate}`;
+
+  const authenRequestString =
+    await sha256(combinedString);
+
+  const url =
+    `${AppConfig.apiBaseUri}/authen/authen_request`;
+
+  console.log("Authen combined:", combinedString);
+  console.log("Authen request:", authenRequestString);
+  console.log("Authen URL:", url);
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type":
+        "application/json; charset=UTF-8",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      authen_request: authenRequestString,
+    }),
+  });
+
+  const json = await parseResponse(response);
+
   return {
-    username,
-    setUsername,
-    password,
-    setPassword,
-    rememberMe,
-    setRememberMe,
-    errors,
-    showPassword,
-    togglePasswordVisibility,
-    isSubmitting,
-    submitStatus,
-    submitMessage,
-    handleSubmit,
+    isError: Boolean(json.isError),
+    data: json.data ?? "",
+    errorMessage: json.errorMessage ?? "",
+  };
+}
+
+export async function accessRequest(username, password, authenToken) 
+{
+  const cleanUsername = username.trim();
+
+  const passwordEncode = await sha256(password);
+
+  const combinedString =
+    `${cleanUsername}&${passwordEncode}&${authenToken}`;
+
+  const authenSignature =
+    await sha256(combinedString);
+
+  const url =
+    `${AppConfig.apiBaseUri}/authen/access_request`;
+
+  console.log("Access combined:", combinedString);
+  console.log("Authen signature:", authenSignature);
+  console.log("Access URL:", url);
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type":
+        "application/json; charset=UTF-8",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      authen_signature: authenSignature,
+      authen_token: authenToken,
+    }),
+  });
+
+  const json = await parseResponse(response);
+
+  if (!json.isError) {
+    const accessToken =
+      json.data?.access_token ?? "";
+
+    const imageUrl =
+      json.data?.image_url ?? "";
+
+    if (!accessToken) {
+      throw new Error(
+        "Server ไม่ได้ส่ง access_token กลับมา"
+      );
+    }
+
+    localStorage.setItem("access_token", accessToken);
+    localStorage.setItem("username", cleanUsername);
+    localStorage.setItem("image_url", imageUrl);
+
+    return {
+      isError: false,
+      data: accessToken,
+      errorMessage: json.errorMessage ?? "",
+    };
+  }
+
+  return {
+    isError: true,
+    data:
+      typeof json.data === "string"
+        ? json.data
+        : "",
+    errorMessage:
+      json.errorMessage || "เข้าสู่ระบบไม่สำเร็จ",
   };
 }
