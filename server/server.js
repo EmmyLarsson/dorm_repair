@@ -124,6 +124,22 @@ app.get("/api/progress_status/get_all", checkAccessToken, async (req, res) => {
     res.json(response);
 });
 
+app.get("/api/repair_request/get_all", checkAccessToken, async (req, res) => {
+    const response = await repair_request.getAllRepairRequest();
+    res.json(response);
+});
+
+app.get("/api/repair_request/get_summary", checkAccessToken, async (req, res) => {
+    const response = await repair_request.getRepairSummary();
+    res.json(response);
+});
+
+app.get("/api/repair_request/get_by_id/:request_id", checkAccessToken, async (req, res) => {
+    const requestId = req.params.request_id;
+    const response = await repair_request.getRepairRequestById(requestId);
+    res.json(response);
+});
+
 app.get("/api/repair_request/get_all_by_user", checkAccessToken, async (req, res) => {
     console.log(req.decoded);
     const accountId = req.decoded.user_id;
@@ -131,6 +147,27 @@ app.get("/api/repair_request/get_all_by_user", checkAccessToken, async (req, res
     console.log(response);
     res.json(response);
 });
+
+app.post("/api/repair_request/create", checkAccessToken, async (req, res) => {
+    const studentId = req.decoded.user_id;
+    const name = req.body.name;
+    const phone = req.body.phone;
+    const roomNumber = req.body.room_number;
+    const repairTypeIds = req.body.repair_type_ids;
+    const description = req.body.description;
+    const allowEntry = req.body.allow_entry;
+
+    const response = await repair_request.createRepairRequest(studentId, name, phone, roomNumber, repairTypeIds, description, allowEntry);
+    res.json(response);
+});
+
+app.post("/api/repair_request/delete", checkAccessToken, async (req, res) => {
+    const requestId = req.body.requestId
+
+    const response = await repair_request.deleteRepairRequest(requestId);
+    res.json(response);
+}); 
+
 
 app.listen(port, () => {
     console.log("Server is running");

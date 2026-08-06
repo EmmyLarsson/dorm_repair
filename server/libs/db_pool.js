@@ -6,7 +6,8 @@ const pool = mariadb.createPool({
     password: '1234',
     port: 3307,
     database: 'dorm_repair',
-    connectionLimit: 5
+    connectionLimit: 5,
+    bigIntAsNumber: true
 });
 
 module.exports = pool;

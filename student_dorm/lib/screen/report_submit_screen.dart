@@ -1,34 +1,16 @@
 import 'dart:io';
 import 'dart:math';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
-
+import 'package:student_dorm/utils/app_api.dart';
+import 'package:student_dorm/color/colors.dart';
+import 'package:student_dorm/widgets/problem_report_card.dart';
+import 'package:student_dorm/widgets/personal_info_form.dart';
 import 'package:student_dorm/widgets/work_type_chip.dart';
 import 'package:student_dorm/widgets/image_preview_grid.dart';
-
-// ── Design tokens (อ้างอิงจาก report_submit.css / tailwind.config) ──
-const Color kRsGold        = Color(0xFFFFD700); // primary-container
-const Color kRsGoldLight   = Color(0xFFFFE87C); // app-bar gradient end
-const Color kRsGoldText    = Color(0xFF705D00); // primary
-const Color kRsOnPrimary   = Color(0xFF221B00);
-const Color kRsBlue        = Color(0xFF3B5BDB); // secondary accent
-const Color kRsNavyMid     = Color(0xFF3F5D9C); // btn-primary gradient start
-const Color kRsNavyDark    = Color(0xFF0F2347); // btn-primary gradient end
-const Color kRsNavy        = Color(0xFF1A3A6C); // shadow color base
-const Color kRsGreen       = Color(0xFF2E7D32);
-const Color kRsAmber       = Color(0xFFE65100);
-const Color kRsError       = Color(0xFFBA1A1A);
-
-const Color kRsSurface     = Color(0xFFF3F3F6);
-const Color kRsOnSurface   = Color(0xFF1A1C1E);
-const Color kRsOnSurfaceVar= Color(0xFF4D4732);
-const Color kRsMuted       = Color(0xFF9A9185);
-const Color kRsFieldBg     = Color(0xFFFAF9F5);
-const Color kRsFieldBorder = Color(0xFFD8D0BB);
-const Color kRsSavedBg     = Color(0xFFF8F5E6);
-const Color kRsSavedBorder = Color(0xFFE0D8BE);
 
 class ReportSubmitScreen extends StatefulWidget {
   const ReportSubmitScreen({super.key});
@@ -38,27 +20,23 @@ class ReportSubmitScreen extends StatefulWidget {
 }
 
 class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
-  // ══════════════════════════════════════════
-  // Mock "saved profile" — ⚠️ TODO: แทนที่ด้วยข้อมูลจาก
-  // shared_preferences หรือดึงจาก Node.js API เมื่อเชื่อม backend จริง
-  // ══════════════════════════════════════════
   final Map<String, String> _mockProfile = const {
     'name': 'สมหญิง หญิงสม',
     'phone': '080-123-4567',
     'room': '110912',
   };
 
-  // ── Form controllers ──
-  final _nameCtrl = TextEditingController();
-  final _phoneCtrl = TextEditingController();
-  final _roomCtrl = TextEditingController();
-  final _descCtrl = TextEditingController();
+  final TextEditingController nameController = TextEditingController();
+  final TextEditingController phoneController = TextEditingController();
+  final TextEditingController roomNumberController = TextEditingController();
+  final TextEditingController descriptionController = TextEditingController();
+  final List<int> selectedRepairTypeIds = [];
+  String _permission = 'yes';
+  bool _isSubmitting = false;
 
-  // ── State ──
   String _infoMode = 'new'; // 'new' | 'saved'
-  String? _selectedWorkTypeId;
+
   final List<File> _uploadedImages = [];
-  String _permission = 'yes'; // 'yes' | 'no' — ค่าเริ่มต้นตาม HTML (ไม่อนุญาต active)
 
   // ── Validation error flags ──
   bool _errName = false;
@@ -74,10 +52,10 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
 
   @override
   void dispose() {
-    _nameCtrl.dispose();
-    _phoneCtrl.dispose();
-    _roomCtrl.dispose();
-    _descCtrl.dispose();
+    nameController.dispose();
+    phoneController.dispose();
+    roomNumberController.dispose();
+    descriptionController.dispose();
     super.dispose();
   }
 
@@ -90,16 +68,14 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
       _infoMode = mode;
 
       if (mode == 'saved') {
-        _nameCtrl.text = _mockProfile['name'] ?? '';
-        _phoneCtrl.text = _mockProfile['phone'] ?? '';
-        _roomCtrl.text = _mockProfile['room'] ?? '';
+        nameController.text = _mockProfile['name'] ?? '';
+        phoneController.text = _mockProfile['phone'] ?? '';
+        roomNumberController.text = _mockProfile['room'] ?? '';
       } else if (prevMode == 'saved') {
-        _nameCtrl.clear();
-        _phoneCtrl.clear();
-        _roomCtrl.clear();
+        nameController.clear();
+        phoneController.clear();
+        roomNumberController.clear();
       }
-
-      // ล้าง validation error ตอนสลับโหมด
       _errName = false;
       _errPhone = false;
       _errRoom = false;
@@ -109,10 +85,17 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
   // ══════════════════════════════════════════
   // Work Type Selection
   // ══════════════════════════════════════════
-  void _selectWorkType(String id) {
+  void _toggleRepairType(String id) {
+    final int repairTypeId = int.parse(id);
+
     setState(() {
-      _selectedWorkTypeId = id;
-      _errWorkType = false;
+      if (selectedRepairTypeIds.contains(repairTypeId)) {
+        selectedRepairTypeIds.remove(repairTypeId);
+      } else {
+        selectedRepairTypeIds.add(repairTypeId);
+      }
+
+      _errWorkType = selectedRepairTypeIds.isEmpty;
     });
   }
 
@@ -144,7 +127,10 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
     });
 
     if (skippedSize > 0 && mounted) {
-      _showToast('$skippedSize ไฟล์มีขนาดเกิน ${_maxFileMb.toInt()} MB', isWarn: true);
+      _showToast(
+        '$skippedSize ไฟล์มีขนาดเกิน ${_maxFileMb.toInt()} MB',
+        isWarn: true,
+      );
     }
   }
 
@@ -180,62 +166,88 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
   // ══════════════════════════════════════════
   bool _validateForm() {
     setState(() {
-      _errName = _nameCtrl.text.trim().isEmpty;
-      _errPhone = _phoneCtrl.text.trim().isEmpty;
-      _errRoom = _roomCtrl.text.trim().isEmpty;
-      _errWorkType = _selectedWorkTypeId == null;
-      _errDesc = _descCtrl.text.trim().isEmpty;
+      _errName = nameController.text.trim().isEmpty;
+      _errPhone = phoneController.text.trim().isEmpty;
+      _errRoom = roomNumberController.text.trim().isEmpty;
+      _errWorkType = selectedRepairTypeIds.isEmpty;
+      _errDesc = descriptionController.text.trim().isEmpty;
     });
     return !(_errName || _errPhone || _errRoom || _errWorkType || _errDesc);
   }
 
-  // ══════════════════════════════════════════
-  // Submit
-  // ⚠️ TODO: เชื่อมกับ Node.js/Express API จริง (เช่น POST /api/repairs)
-  // พร้อมส่ง multipart/form-data สำหรับรูปภาพไปเก็บใน MySQL + storage
-  // ══════════════════════════════════════════
+  Future<(bool, String, String)> _doCreateRepairRequest() async {
+    Map<String, dynamic> postData = {
+      "name": nameController.text.trim(),
+      "phone": phoneController.text.trim(),
+      "room_number": roomNumberController.text.trim(),
+      "repair_type_ids": selectedRepairTypeIds,
+      "description": descriptionController.text.trim(),
+      "allow_entry": _permission == 'yes',
+    };
+
+    final response = await AppAPI.post("/repair_request/create", postData);
+    final Map<String, dynamic> json = jsonDecode(response.body);
+    final bool isError = json["isError"];
+    final String errorMessage = json["errorMessage"] ?? "";
+
+    String caseCode = "";
+
+    if (!isError) {
+      caseCode = json["data"]["case_code"].toString();
+    }
+    return (isError, errorMessage, caseCode);
+  }
+
   Future<void> _handleSubmit() async {
     if (!_validateForm()) {
       _showToast('กรุณากรอกข้อมูลให้ครบถ้วน', isWarn: true);
       return;
     }
 
-    // ── Mock submit: จำลอง delay เหมือนกำลังยิง API ──
-    // เมื่อพร้อมต่อ backend จริง ให้แทนที่ด้วย:
-    //
-    // final response = await http.post(
-    //   Uri.parse('$kApiBaseUrl/api/repairs'),
-    //   headers: {'Authorization': 'Bearer $token'},
-    //   body: {
-    //     'name': _nameCtrl.text.trim(),
-    //     'phone': _phoneCtrl.text.trim(),
-    //     'room': _roomCtrl.text.trim(),
-    //     'workType': _selectedWorkTypeId,
-    //     'description': _descCtrl.text.trim(),
-    //     'allowEntry': _permission,
-    //     // + แนบไฟล์รูปผ่าน MultipartRequest
-    //   },
-    // );
-    // if (response.statusCode != 200) { ... error handling ... }
+    var (isError, errorMessage, caseCode) = await _doCreateRepairRequest();
 
-    await Future.delayed(const Duration(milliseconds: 500));
     if (!mounted) return;
 
-    final ticketId = _generateTicketId();
-    final workTypeLabel =
-        kWorkTypes.firstWhere((w) => w.id == _selectedWorkTypeId).label;
-    final now = DateTime.now();
-    final timeLabel =
-        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+    if (isError) {
+      showDialog(
+        context: context,
+        builder: (context) {
+          return AlertDialog(content: Text(errorMessage));
+        },
+      );
+      return;
+    }
 
-    _showSuccessModal(ticketId: ticketId, workType: workTypeLabel, time: timeLabel);
+    final String workTypeLabel = kWorkTypes
+        .where((workType) {
+          final int? repairTypeId = int.tryParse(workType.id);
+
+          return repairTypeId != null &&
+              selectedRepairTypeIds.contains(repairTypeId);
+        })
+        .map((workType) => workType.label)
+        .join(', ');
+
+    final DateTime now = DateTime.now();
+
+    final String timeLabel =
+        '${now.hour.toString().padLeft(2, '0')}:'
+        '${now.minute.toString().padLeft(2, '0')}';
+
+    _showSuccessModal(
+      ticketId: caseCode,
+      workType: workTypeLabel,
+      time: timeLabel,
+    );
   }
 
   String _generateTicketId() {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     final rnd = Random();
-    final suffix =
-        List.generate(6, (_) => chars[rnd.nextInt(chars.length)]).join();
+    final suffix = List.generate(
+      6,
+      (_) => chars[rnd.nextInt(chars.length)],
+    ).join();
     return 'REQ-$suffix';
   }
 
@@ -247,12 +259,13 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
     required String workType,
     required String time,
   }) {
+    final BuildContext pageContext = context;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       barrierColor: Colors.black.withValues(alpha: 0.5),
-      builder: (context) {
+      builder: (sheetContext) {
         return Container(
           padding: EdgeInsets.fromLTRB(
             24,
@@ -336,18 +349,27 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
 
               // Ticket chip
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 6,
+                ),
                 margin: const EdgeInsets.only(bottom: 18),
                 decoration: BoxDecoration(
                   color: const Color(0xFFF8F5E8),
                   borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: const Color(0xFFE8E0C4), width: 1.5),
+                  border: Border.all(
+                    color: const Color(0xFFE8E0C4),
+                    width: 1.5,
+                  ),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.confirmation_number_outlined,
-                        size: 15, color: kRsGoldText),
+                    const Icon(
+                      Icons.confirmation_number_outlined,
+                      size: 15,
+                      color: kRsGoldText,
+                    ),
                     const SizedBox(width: 6),
                     Text(
                       ticketId,
@@ -365,7 +387,10 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
               // Info row: เวลารับเรื่อง / ประเภทงาน
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 14,
+                ),
                 margin: const EdgeInsets.only(bottom: 20),
                 decoration: BoxDecoration(
                   color: const Color(0xFFFAF8F0),
@@ -425,13 +450,17 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
                     child: InkWell(
                       borderRadius: BorderRadius.circular(999),
                       onTap: () {
-                        Navigator.of(context).pop();
-                        // TODO: นำทางไปหน้าประวัติการแจ้งซ่อม
+                        Navigator.of(sheetContext).pop();
+                        Navigator.of(pageContext).pop(true);
                       },
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Icon(Icons.history, color: Colors.white, size: 20),
+                          const Icon(
+                            Icons.history,
+                            color: Colors.white,
+                            size: 20,
+                          ),
                           const SizedBox(width: 8),
                           Text(
                             'ดูประวัติการแจ้งซ่อม',
@@ -539,39 +568,82 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
     return Theme(
       data: Theme.of(context).copyWith(textTheme: textTheme),
       child: Scaffold(
-      backgroundColor: kRsSurface,
-      body: Column(
-        children: [
-          _buildAppBar(context),
-          Expanded(
-            child: Stack(
-              children: [
-                SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(18, 20, 18, 140),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _buildPersonalInfoCard(),
-                      const SizedBox(height: 18),
-                      _buildProblemReportCard(),
-                      const SizedBox(height: 18),
-                      _buildPhotoCard(),
-                    ],
+        backgroundColor: kRsSurface,
+        body: Column(
+          children: [
+            _buildAppBar(context),
+            Expanded(
+              child: Stack(
+                children: [
+                  SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(18, 20, 18, 140),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        PersonalInfoForm(
+                          nameController: nameController,
+                          phoneController: phoneController,
+                          roomController: roomNumberController,
+                          infoMode: _infoMode,
+                          errorName: _errName,
+                          errorPhone: _errPhone,
+                          errorRoom: _errRoom,
+                          onInfoModeChanged: _applyInfoMode,
+                          onNameChanged: (value) {
+                            if (value.trim().isNotEmpty && _errName) {
+                              setState(() {
+                                _errName = false;
+                              });
+                            }
+                          },
+                          onPhoneChanged: (value) {
+                            if (value.trim().isNotEmpty && _errPhone) {
+                              setState(() {
+                                _errPhone = false;
+                              });
+                            }
+                          },
+                          onRoomChanged: (value) {
+                            if (value.trim().isNotEmpty && _errRoom) {
+                              setState(() {
+                                _errRoom = false;
+                              });
+                            }
+                          },
+                        ),
+                        const SizedBox(height: 18),
+                        ProblemReportCard(
+                          descriptionController: descriptionController,
+                          selectedRepairTypeIds: selectedRepairTypeIds,
+                          errorWorkType: _errWorkType,
+                          errorDescription: _errDesc,
+                          onWorkTypeSelected: _toggleRepairType,
+                          onDescriptionChanged: (value) {
+                            if (value.trim().isNotEmpty && _errDesc) {
+                              setState(() {
+                                _errDesc = false;
+                              });
+                            }
+                          },
+                        ),
+                        const SizedBox(height: 18),
+                        _buildPhotoCard(),
+                      ],
+                    ),
                   ),
-                ),
-                // Bottom bar ลอยทับด้านล่าง (ตาม .bottom-bar position: fixed)
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  child: _buildBottomBar(),
-                ),
-              ],
+                  // Bottom bar ลอยทับด้านล่าง (ตาม .bottom-bar position: fixed)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: _buildBottomBar(),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
-    ),
     );
   }
 
@@ -659,218 +731,6 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
   // เมื่อกด "ข้อมูลเดิม" ควรดึงจาก API เช่น GET /api/profile/me
   // แทนการใช้ _mockProfile ที่ hardcode ไว้ตอนนี้
   // ═══════════════════════════════════════════════════════
-  Widget _buildPersonalInfoCard() {
-    final bool isSaved = _infoMode == 'saved';
-
-    return _card(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              _iconBadge(Icons.person, bg: const Color(0xFFFFF8D6), fg: kRsGoldText),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _cardTitle('ข้อมูลส่วนตัว'),
-                    _cardSub('ผู้แจ้งซ่อม'),
-                  ],
-                ),
-              ),
-              _buildTogglePill(),
-            ],
-          ),
-          const SizedBox(height: 18),
-
-          _fieldGroup(
-            icon: Icons.badge_outlined,
-            label: 'ชื่อผู้แจ้ง',
-            controller: _nameCtrl,
-            hint: 'ชื่อ-นามสกุล',
-            isError: _errName,
-            errorText: 'กรุณากรอกชื่อผู้แจ้ง',
-            readOnly: isSaved,
-          ),
-          const SizedBox(height: 14),
-          _fieldGroup(
-            icon: Icons.phone_outlined,
-            label: 'เบอร์โทรติดต่อ',
-            controller: _phoneCtrl,
-            hint: '0xx-xxx-xxxx',
-            isError: _errPhone,
-            errorText: 'กรุณากรอกเบอร์โทรติดต่อ',
-            readOnly: isSaved,
-            keyboardType: TextInputType.phone,
-          ),
-          const SizedBox(height: 14),
-          _fieldGroup(
-            icon: Icons.meeting_room_outlined,
-            label: 'หมายเลขห้องพัก',
-            controller: _roomCtrl,
-            hint: 'เช่น 110912',
-            isError: _errRoom,
-            errorText: 'กรุณากรอกหมายเลขห้องพัก',
-            readOnly: isSaved,
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Toggle pill: ข้อมูลใหม่ / ข้อมูลเดิม (ตาม .toggle-pill + sliding thumb)
-  Widget _buildTogglePill() {
-    return Container(
-      padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(
-        color: const Color(0xFFEEECE5),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _toggleBtn('ข้อมูลใหม่', isOn: _infoMode == 'new', onTap: () => _applyInfoMode('new')),
-          _toggleBtn('ข้อมูลเดิม', isOn: _infoMode == 'saved', onTap: () => _applyInfoMode('saved')),
-        ],
-      ),
-    );
-  }
-
-  Widget _toggleBtn(String label, {required bool isOn, required VoidCallback onTap}) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOut,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: isOn ? Colors.white : Colors.transparent,
-          borderRadius: BorderRadius.circular(999),
-          boxShadow: isOn
-              ? [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.14),
-                    blurRadius: 4,
-                    offset: const Offset(0, 1),
-                  ),
-                ]
-              : null,
-        ),
-        child: Text(
-          label,
-          style: GoogleFonts.sarabun(
-            fontSize: 10,
-            fontWeight: FontWeight.w700,
-            color: isOn ? kRsGoldText : const Color(0xFF7E775F),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ═══════════════════════════════════════════════════════
-  // การ์ด 2: รายงานปัญหา
-  // ⚠️ TODO(backend): รายการ "ประเภทงาน" (kWorkTypes) ตอนนี้ hardcode
-  // ไว้ในไฟล์ widgets/work_type_chip.dart — เมื่อเชื่อม backend จริง
-  // ให้ดึงจากตาราง `work_types` ผ่าน เช่น GET /api/work-types แทน
-  // (จะได้เพิ่ม/แก้ประเภทงานจากฝั่ง admin โดยไม่ต้องแก้โค้แอป)
-  // ฟิลด์ description ก็ต้องบันทึกลง `repair_requests.description`
-  // ═══════════════════════════════════════════════════════
-  Widget _buildProblemReportCard() {
-    return _card(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              _iconBadge(Icons.build, bg: const Color(0xFFE8EDFF), fg: kRsBlue),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _cardTitle('รายงานปัญหา'),
-                    _cardSub('ระบุรายละเอียดความเสียหาย'),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 18),
-
-          // ประเภทงาน — chip grid 3 คอลัมน์ (ใช้ Wrap แทน GridView เพื่อให้
-          // ความสูงของแต่ละ chip อิงตามเนื้อหาจริง ไม่ยืด/บีบตาม aspect ratio)
-          _fieldLabel(Icons.category_outlined, 'ประเภทงาน'),
-          const SizedBox(height: 6),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              const int columns = 3;
-              const double gap = 9;
-              final double cellWidth =
-                  (constraints.maxWidth - gap * (columns - 1)) / columns;
-              return Wrap(
-                spacing: gap,
-                runSpacing: gap,
-                children: kWorkTypes.map((wt) {
-                  return SizedBox(
-                    width: cellWidth,
-                    child: WorkTypeChip(
-                      workType: wt,
-                      isSelected: _selectedWorkTypeId == wt.id,
-                      onTap: () => _selectWorkType(wt.id),
-                    ),
-                  );
-                }).toList(),
-              );
-            },
-          ),
-          if (_errWorkType) ...[
-            const SizedBox(height: 6),
-            Text(
-              'กรุณาเลือกประเภทงาน',
-              style: GoogleFonts.sarabun(
-                fontSize: 11.5,
-                fontWeight: FontWeight.w500,
-                color: kRsError,
-              ),
-            ),
-          ],
-
-          const SizedBox(height: 14),
-
-          // รายละเอียดปัญหา
-          _fieldLabel(Icons.edit_note, 'รายละเอียดปัญหา'),
-          const SizedBox(height: 6),
-          TextField(
-            controller: _descCtrl,
-            maxLines: 4,
-            style: GoogleFonts.sarabun(fontSize: 15, color: kRsOnSurface),
-            decoration: _fieldDecoration(
-              hint: "อธิบายปัญหาที่พบให้ชัดเจน เช่น 'หลอดไฟห้องน้ำดับไม่ติดแม้เปลี่ยนหลอดแล้ว'",
-              isError: _errDesc,
-            ),
-            onChanged: (v) {
-              if (v.trim().isNotEmpty && _errDesc) {
-                setState(() => _errDesc = false);
-              }
-            },
-          ),
-          if (_errDesc) ...[
-            const SizedBox(height: 4),
-            Text(
-              'กรุณาระบุรายละเอียดปัญหา',
-              style: GoogleFonts.sarabun(
-                fontSize: 11.5,
-                fontWeight: FontWeight.w500,
-                color: kRsError,
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
 
   // ═══════════════════════════════════════════════════════
   // การ์ด 3: รูปภาพประกอบ
@@ -890,7 +750,11 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
         children: [
           Row(
             children: [
-              _iconBadge(Icons.photo_camera, bg: const Color(0xFFFFF3E0), fg: kRsAmber),
+              _iconBadge(
+                Icons.photo_camera,
+                bg: const Color(0xFFFFF3E0),
+                fg: kRsAmber,
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -902,7 +766,10 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 11,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFFEEEEF0),
                   borderRadius: BorderRadius.circular(999),
@@ -926,7 +793,10 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
             child: Opacity(
               opacity: isFull ? 0.5 : 1,
               child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 30, horizontal: 16),
+                padding: const EdgeInsets.symmetric(
+                  vertical: 30,
+                  horizontal: 16,
+                ),
                 decoration: BoxDecoration(
                   color: kRsFieldBg,
                   borderRadius: BorderRadius.circular(20),
@@ -957,8 +827,11 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
                           ),
                         ],
                       ),
-                      child: Icon(Icons.add_photo_alternate,
-                          size: 28, color: kRsGoldText),
+                      child: Icon(
+                        Icons.add_photo_alternate,
+                        size: 28,
+                        color: kRsGoldText,
+                      ),
                     ),
                     Text(
                       'แตะเพื่อเลือกรูปภาพ',
@@ -1050,7 +923,8 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
                   isActive: _permission == 'yes',
                   activeColor: kRsGreen,
                   activeBg: const LinearGradient(
-                      colors: [Color(0xFFF0FAF0), Color(0xFFE8F5E9)]),
+                    colors: [Color(0xFFF0FAF0), Color(0xFFE8F5E9)],
+                  ),
                   onTap: () => _setPermission('yes'),
                 ),
               ),
@@ -1062,7 +936,8 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
                   isActive: _permission == 'no',
                   activeColor: kRsError,
                   activeBg: const LinearGradient(
-                      colors: [Color(0xFFFFF2F1), Color(0xFFFFE8E6)]),
+                    colors: [Color(0xFFFFF2F1), Color(0xFFFFE8E6)],
+                  ),
                   onTap: () => _setPermission('no'),
                 ),
               ),
@@ -1108,7 +983,11 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 18, color: isActive ? activeColor : kRsOnSurfaceVar),
+            Icon(
+              icon,
+              size: 18,
+              color: isActive ? activeColor : kRsOnSurfaceVar,
+            ),
             const SizedBox(width: 7),
             Text(
               label,
@@ -1138,16 +1017,28 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
-                leading: const Icon(Icons.photo_library_outlined, color: kRsBlue),
-                title: Text('เลือกจากคลังภาพ', style: GoogleFonts.sarabun(fontSize: 14)),
+                leading: const Icon(
+                  Icons.photo_library_outlined,
+                  color: kRsBlue,
+                ),
+                title: Text(
+                  'เลือกจากคลังภาพ',
+                  style: GoogleFonts.sarabun(fontSize: 14),
+                ),
                 onTap: () {
                   Navigator.pop(context);
                   _pickImages();
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.photo_camera_outlined, color: kRsGoldText),
-                title: Text('ถ่ายภาพ', style: GoogleFonts.sarabun(fontSize: 14)),
+                leading: const Icon(
+                  Icons.photo_camera_outlined,
+                  color: kRsGoldText,
+                ),
+                title: Text(
+                  'ถ่ายภาพ',
+                  style: GoogleFonts.sarabun(fontSize: 14),
+                ),
                 onTap: () {
                   Navigator.pop(context);
                   _pickFromCamera();
@@ -1204,21 +1095,18 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
             ),
             child: InkWell(
               borderRadius: BorderRadius.circular(999),
-              // ⚠️ TODO(backend): เมื่อเชื่อม Node.js จริง ควร disable ปุ่มนี้
-              // ระหว่างรอ response (isSubmitting = true) กัน user กดซ้ำ
-              onTap: _handleSubmit,
+              onTap: _isSubmitting ? null : _handleSubmit,
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   const Icon(Icons.send, color: Colors.white, size: 20),
                   const SizedBox(width: 8),
                   Text(
-                    'ส่งรายงาน',
+                    _isSubmitting ? 'กำลังส่ง...' : 'ส่งรายงาน',
                     style: GoogleFonts.sarabun(
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
                       color: Colors.white,
-                      letterSpacing: 0.2,
                     ),
                   ),
                 ],
@@ -1240,7 +1128,9 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: const Color(0xFFD0C6AB).withValues(alpha: 0.35)),
+        border: Border.all(
+          color: const Color(0xFFD0C6AB).withValues(alpha: 0.35),
+        ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.04),
@@ -1386,7 +1276,10 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
 
     return InputDecoration(
       hintText: hint,
-      hintStyle: GoogleFonts.sarabun(fontSize: 14, color: const Color(0xFFC0B8A8)),
+      hintStyle: GoogleFonts.sarabun(
+        fontSize: 14,
+        color: const Color(0xFFC0B8A8),
+      ),
       filled: true,
       fillColor: isSaved ? kRsSavedBg : kRsFieldBg,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),

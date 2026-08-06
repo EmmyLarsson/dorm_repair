@@ -2,6 +2,10 @@ export class RepairRequestModel {
   constructor({
     requestId,
     caseCode,
+    studentName,
+    contactPhone,
+    roomNumber,
+    allowEntry,
     typeNames,
     description,
     statusId,
@@ -10,25 +14,34 @@ export class RepairRequestModel {
   }) {
     this.requestId = requestId;
     this.caseCode = caseCode;
-    this.typeNames = typeNames;       // array ของ string
+    this.studentName = studentName;
+    this.contactPhone = contactPhone;
+    this.roomNumber = roomNumber;
+    this.allowEntry = allowEntry;
+    this.typeNames = typeNames;
     this.description = description;
     this.statusId = statusId;
     this.statusName = statusName;
-    this.createdAt = createdAt;       // string ดิบจาก backend เช่น "07-02-2569 10:30:00"
+    this.createdAt = createdAt;
   }
 
-  /** เทียบเท่า getRepairRequestDateTime() ใน Dart */
   getRepairRequestDate() {
-    // รูปแบบ backend: "dd-MM-yyyy HH:mm:ss"
     const [datePart, timePart] = this.createdAt.split(' ');
-    const [day, month, year] = datePart.split('-').map(Number);
+    const [year, month, day] = datePart.split('-').map(Number);
     const [hour, minute, second] = (timePart || '00:00:00')
       .split(':')
       .map(Number);
     return new Date(year, month - 1, day, hour, minute, second);
   }
 
-  /** เทียบเท่า factory fromJson() ใน Dart */
+  getRepairRequestDateLabel() {
+    return this.getRepairRequestDate().toLocaleDateString('th-TH', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+  }
+
   static fromJson(json) {
     const rawTypes = json.type_names ?? '';
     const parsedTypes = rawTypes
@@ -38,6 +51,10 @@ export class RepairRequestModel {
     return new RepairRequestModel({
       requestId: json.request_id,
       caseCode: json.case_code,
+      studentName: json.student_name ?? '',
+      contactPhone: json.contact_phone ?? '',
+      roomNumber: json.room_number ?? '',
+      allowEntry: Boolean(json.allow_entry),
       typeNames: parsedTypes,
       description: json.description ?? '',
       statusId: json.progress_status_id ?? 1,
@@ -47,10 +64,6 @@ export class RepairRequestModel {
   }
 }
 
-/**
- * RepairRequestResponse
- * เทียบเท่ากับ RepairRequestResponse.dart — envelope ของผลลัพธ์ API
- */
 export class RepairRequestResponse {
   constructor({ isError, data, errorMessage }) {
     this.isError = isError;

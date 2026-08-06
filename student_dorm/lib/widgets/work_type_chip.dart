@@ -1,16 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-
-// ── Design tokens เฉพาะหน้านี้ (อ้างอิงจาก report_submit.css) ──────
-// หมายเหตุ: หน้านี้ใช้ theme สีทอง/น้ำเงิน (indigo) คนละชุดกับหน้า
-// login/home ที่เป็น navy/gold ล้วน จึงประกาศ tokens แยกในไฟล์นี้
-const Color kRsGoldText   = Color(0xFF705D00); // primary
-const Color kRsBlue       = Color(0xFF3B5BDB); // secondary-ish (blue accent)
-const Color kRsOnSurface  = Color(0xFF1A1C1E);
-const Color kRsMuted      = Color(0xFF4D4732); // on-surface-variant
-const Color kRsBorder     = Color(0xFFE0DAC8);
-const Color kRsFieldBg    = Color(0xFFFAF9F5);
-const Color kRsChipIcon   = Color(0xFF8E8672);
+import 'package:student_dorm/color/colors.dart';
 
 class WorkType {
   final String id;
@@ -22,12 +12,12 @@ class WorkType {
 
 // ตรงกับ WORK_TYPES array ใน report_submit.js
 const List<WorkType> kWorkTypes = [
-  WorkType(id: 'electric', label: 'ไฟฟ้า', icon: Icons.bolt),
-  WorkType(id: 'plumbing', label: 'ประปา', icon: Icons.plumbing),
-  WorkType(id: 'furniture', label: 'เฟอร์นิเจอร์', icon: Icons.chair),
-  WorkType(id: 'room', label: 'งานห้อง', icon: Icons.construction),
-  WorkType(id: 'internet', label: 'อินเทอร์เน็ต', icon: Icons.router),
-  WorkType(id: 'other', label: 'อื่นๆ', icon: Icons.more_horiz),
+  WorkType(id: '1', label: 'งานไฟฟ้า', icon: Icons.electrical_services),
+  WorkType(id: '2', label: 'งานประปา', icon: Icons.plumbing),
+  WorkType(id: '3', label: 'งานเฟอร์นิเจอร์', icon: Icons.chair_outlined),
+  WorkType(id: '4', label: 'งานห้อง', icon: Icons.meeting_room_outlined),
+  WorkType(id: '5', label: 'งานอินเทอร์เน็ต', icon: Icons.wifi),
+  WorkType(id: '6', label: 'อื่นๆ', icon: Icons.more_horiz),
 ];
 
 /// การ์ด chip เดี่ยวสำหรับเลือกประเภทงาน (ตาม .work-chip)

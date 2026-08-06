@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:student_dorm/models/repair_request_model.dart';
+import 'package:student_dorm/screen/report_submit_screen.dart';
 
 import 'dart:convert';
+import 'package:student_dorm/color/colors.dart';
 import 'package:student_dorm/utils/app_api.dart';
 import 'package:student_dorm/widgets/bottom_nav.dart';
 import 'package:student_dorm/widgets/repair_info.dart';
@@ -17,7 +19,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   List<RepairRequestModel> repairrequestModelStore = [];
-  String? activeFilter;
+  int? activeStatusId;
   int cntPending = 0;
   int cntWorking = 0;
   int cntDone = 0;
@@ -25,9 +27,12 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _errorMessage;
 
   List<RepairRequestModel> get _filteredRepairs {
-    if (activeFilter == null) return repairrequestModelStore;
+    if (activeStatusId == null) {
+      return repairrequestModelStore;
+    }
+
     return repairrequestModelStore
-        .where((item) => item.statusName == activeFilter)
+        .where((item) => item.statusId == activeStatusId)
         .toList();
   }
 
@@ -37,7 +42,7 @@ class _HomeScreenState extends State<HomeScreen> {
     // print(json);
     RepairRequestResponse repairResponse = RepairRequestResponse.fromJson(json);
     // print(repairResponse.data.length);
-    
+
     int pending = 0, working = 0, done = 0;
     for (var item in repairResponse.data) {
       if (item.statusId == 1)
@@ -155,7 +160,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_filteredRepairs.isEmpty) {
       return _buildEmptyState();
     }
-    return RepairInfo(repairrequestModelStore: repairrequestModelStore);
+    return RepairInfo(repairrequestModelStore: _filteredRepairs);
   }
 
   // ── Stats row ──
@@ -168,9 +173,9 @@ class _HomeScreenState extends State<HomeScreen> {
             count: cntPending,
             label: 'รอตรวจสอบ',
             color: const Color(0xFFF59E0B),
-            isActive: activeFilter == 'รอตรวจสอบ',
+            isActive: activeStatusId == 1,
             onTap: () => setState(() {
-              activeFilter = activeFilter == 'รอตรวจสอบ' ? null : 'รอตรวจสอบ';
+              activeStatusId = activeStatusId == 1 ? null : 1;
             }),
           ),
         ),
@@ -181,9 +186,9 @@ class _HomeScreenState extends State<HomeScreen> {
             count: cntWorking,
             label: 'กำลังซ่อม',
             color: kNavyMid,
-            isActive: activeFilter == 'กำลังซ่อม',
+            isActive: activeStatusId == 2,
             onTap: () => setState(() {
-              activeFilter = activeFilter == 'กำลังซ่อม' ? null : 'กำลังซ่อม';
+              activeStatusId = activeStatusId == 2 ? null : 2;
             }),
           ),
         ),
@@ -194,9 +199,9 @@ class _HomeScreenState extends State<HomeScreen> {
             count: cntDone,
             label: 'เสร็จแล้ว',
             color: const Color(0xFF16A34A),
-            isActive: activeFilter == 'เสร็จแล้ว',
+            isActive: activeStatusId == 3,
             onTap: () => setState(() {
-              activeFilter = activeFilter == 'เสร็จแล้ว' ? null : 'เสร็จแล้ว';
+              activeStatusId = activeStatusId == 3 ? null : 3;
             }),
           ),
         ),
@@ -418,7 +423,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ── FAB ──
   Widget _buildFab(TextTheme textTheme) {
     return Container(
       height: 50,
@@ -441,8 +445,15 @@ class _HomeScreenState extends State<HomeScreen> {
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(999),
-          onTap: () {
-            // TODO: นำทางไปหน้าแจ้งซ่อม
+          onTap: () async {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => ReportSubmitScreen()),
+            );
+
+            // เรียกเมื่อกลับมาหน้า Home
+            // ใช้กรณีต้องการโหลดข้อมูลงานซ่อมใหม่
+            _fetchData();
           },
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 22, 0),
