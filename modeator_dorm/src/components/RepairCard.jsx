@@ -46,7 +46,7 @@ function RepairCard({repair,onView,onApprove,onReject,}) {
         <div className="space-y-2">
           <button
             type="button"
-            onClick={() => RepairDetailModal}
+            onClick={() => onView(repair)}
             className="flex w-full items-center justify-center gap-1 rounded-xl bg-slate-200 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-300"
           >
             <span className="material-symbols-outlined text-base">

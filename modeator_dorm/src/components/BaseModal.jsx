@@ -68,7 +68,7 @@ const BaseModal = ({
       {isOpen && (
         <motion.div
           key="backdrop"
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-on-background/40 backdrop-blur-sm p-margin-mobile md:p-margin-desktop"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 md:p-8"
           variants={backdropVariants}
           initial="hidden"
           animate="visible"
@@ -77,7 +77,7 @@ const BaseModal = ({
         >
           <motion.div
             key="modal"
-            className={`relative w-full ${maxWidth} max-h-[90vh] overflow-y-auto bg-surface-container-lowest rounded-[32px] custom-shadow border border-outline-variant/30`}
+            className={`relative w-full ${maxWidth} max-h-[90vh] overflow-y-auto bg-white rounded-[32px] shadow-2xl border border-slate-200`}
             variants={modalVariants}
             initial="hidden"
             animate="visible"
@@ -85,16 +85,16 @@ const BaseModal = ({
             onClick={(e) => e.stopPropagation()}
           >
             {/* ===== Header (Shape คงเดิมทุก Modal) ===== */}
-            <header className="flex items-center justify-between px-8 py-6 bg-surface/70 backdrop-blur-md border-b border-white/20 sticky top-0 z-50">
-              <h1 className="font-headline-md text-headline-md text-primary">
+            <header className="flex items-center justify-between px-8 py-6 bg-white/70 backdrop-blur-md border-b border-slate-200 sticky top-0 z-50">
+              <h1 className="text-xl font-bold text-blue-800">
                 {title}
               </h1>
               <button
                 onClick={onClose}
-                className="flex items-center gap-2 px-6 py-2.5 bg-inverse-surface text-inverse-on-surface rounded-full transition-all duration-200 active:scale-95 hover:bg-on-surface-variant tactile-shadow"
+                className="flex items-center gap-2 px-6 py-2.5 bg-slate-800 text-white rounded-full transition-all duration-200 active:scale-95 hover:bg-slate-900 shadow-sm"
               >
-                <span className="material-symbols-outlined text-body-md">close</span>
-                <span className="font-label-md text-label-md">ปิด</span>
+                <span className="material-symbols-outlined text-base">close</span>
+                <span className="text-sm font-bold">ปิด</span>
               </button>
             </header>
 
@@ -103,7 +103,7 @@ const BaseModal = ({
 
             {/* ===== Footer Slot ===== */}
             {footer && (
-              <footer className="px-8 py-6 bg-surface-container-high/30 border-t border-outline-variant/20 flex flex-col md:flex-row items-center justify-between gap-4 sticky bottom-0">
+              <footer className="px-8 py-6 bg-slate-50 border-t border-slate-200 flex flex-col md:flex-row items-center justify-between gap-4 sticky bottom-0">
                 {footer}
               </footer>
             )}
