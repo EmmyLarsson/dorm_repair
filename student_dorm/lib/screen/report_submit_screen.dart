@@ -240,20 +240,6 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
       time: timeLabel,
     );
   }
-
-  String _generateTicketId() {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    final rnd = Random();
-    final suffix = List.generate(
-      6,
-      (_) => chars[rnd.nextInt(chars.length)],
-    ).join();
-    return 'REQ-$suffix';
-  }
-
-  // ══════════════════════════════════════════
-  // Success Modal (bottom sheet ตาม .modal-sheet)
-  // ══════════════════════════════════════════
   void _showSuccessModal({
     required String ticketId,
     required String workType,
@@ -1184,110 +1170,6 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
           color: kRsMuted,
         ),
       ),
-    );
-  }
-
-  Widget _fieldLabel(IconData icon, String text) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 14, color: kRsMuted),
-        const SizedBox(width: 5),
-        Text(
-          text,
-          style: GoogleFonts.sarabun(
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            color: kRsOnSurfaceVar,
-            letterSpacing: 0.4,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _fieldGroup({
-    required IconData icon,
-    required String label,
-    required TextEditingController controller,
-    required String hint,
-    required bool isError,
-    required String errorText,
-    bool readOnly = false,
-    TextInputType? keyboardType,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _fieldLabel(icon, label),
-        const SizedBox(height: 6),
-        TextField(
-          controller: controller,
-          readOnly: readOnly,
-          keyboardType: keyboardType,
-          style: GoogleFonts.sarabun(
-            fontSize: 15,
-            color: readOnly ? kRsGoldText : kRsOnSurface,
-            fontWeight: readOnly ? FontWeight.w500 : FontWeight.w400,
-          ),
-          decoration: _fieldDecoration(
-            hint: hint,
-            isError: isError,
-            isSaved: readOnly,
-          ),
-          onChanged: (v) {
-            if (v.trim().isNotEmpty && isError) {
-              setState(() {
-                if (label.contains('ชื่อ')) _errName = false;
-                if (label.contains('เบอร์')) _errPhone = false;
-                if (label.contains('ห้อง')) _errRoom = false;
-              });
-            }
-          },
-        ),
-        if (isError) ...[
-          const SizedBox(height: 4),
-          Text(
-            errorText,
-            style: GoogleFonts.sarabun(
-              fontSize: 11.5,
-              fontWeight: FontWeight.w500,
-              color: kRsError,
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-
-  InputDecoration _fieldDecoration({
-    required String hint,
-    required bool isError,
-    bool isSaved = false,
-  }) {
-    OutlineInputBorder border(Color color, double width) {
-      return OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: BorderSide(color: color, width: width),
-      );
-    }
-
-    final Color baseBorder = isError ? kRsError : kRsFieldBorder;
-
-    return InputDecoration(
-      hintText: hint,
-      hintStyle: GoogleFonts.sarabun(
-        fontSize: 14,
-        color: const Color(0xFFC0B8A8),
-      ),
-      filled: true,
-      fillColor: isSaved ? kRsSavedBg : kRsFieldBg,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-      border: border(isSaved ? kRsSavedBorder : baseBorder, 1.5),
-      enabledBorder: border(isSaved ? kRsSavedBorder : baseBorder, 1.5),
-      focusedBorder: border(isError ? kRsError : kRsBlue, 1.5),
-      errorBorder: border(kRsError, 1.5),
-      disabledBorder: border(kRsSavedBorder, 1.5),
     );
   }
 }

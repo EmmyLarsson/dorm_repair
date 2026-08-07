@@ -4,9 +4,21 @@ import 'package:student_dorm/color/colors.dart';
 
 class BottomNav extends StatelessWidget {
   final double height;
-  
-  const BottomNav({super.key,
-   required this.height});
+  final int currentIndex;
+  final ValueChanged<int> onTap;
+
+  const BottomNav({
+    super.key,
+    required this.height,
+    required this.currentIndex,
+    required this.onTap,
+  });
+
+  static const _items = [
+    (Icons.home_outlined, Icons.home, 'หน้าหลัก'),
+    (Icons.history, Icons.history, 'ประวัติแจ้ง'),
+    (Icons.person_outline, Icons.person, 'โปรไฟล์'),
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -36,13 +48,17 @@ class BottomNav extends StatelessWidget {
         ],
       ),
       child: Row(
-        children: [
-          _navItem(textTheme, icon: Icons.home, label: 'หน้าหลัก', active: true),
-          const SizedBox(width: 4),
-          _navItem(textTheme, icon: Icons.history, label: 'ประวัติแจ้ง', active: false),
-          const SizedBox(width: 4),
-          _navItem(textTheme, icon: Icons.person_outline, label: 'โปรไฟล์', active: false),
-        ],
+        children: List.generate(_items.length, (i) {
+          final (outlineIcon, filledIcon, label) = _items[i];
+          final active = i == currentIndex;
+          return _navItem(
+            textTheme,
+            icon: active ? filledIcon : outlineIcon,
+            label: label,
+            active: active,
+            onTap: () => onTap(i),
+          );
+        }),
       ),
     );
   }
@@ -52,6 +68,7 @@ class BottomNav extends StatelessWidget {
     required IconData icon,
     required String label,
     required bool active,
+    required VoidCallback onTap,
   }) {
     // active: navy บนพื้นขาวโปร่งลอย (.nav-it.active)
     // inactive: navy จางๆ 40% opacity ไม่มีพื้นหลัง (.nav-it)
@@ -60,9 +77,7 @@ class BottomNav extends StatelessWidget {
     return Expanded(
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () {
-          // TODO: นำทางไปหน้าที่เกี่ยวข้อง (history.html / profile.html)
-        },
+        onTap: onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
           curve: Curves.easeOut,
@@ -82,11 +97,7 @@ class BottomNav extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
-                active ? _filledVariant(icon) : icon,
-                color: color,
-                size: 22,
-              ),
+              Icon(icon, color: color, size: 22),
               const SizedBox(height: 2),
               Text(
                 label,
@@ -103,13 +114,4 @@ class BottomNav extends StatelessWidget {
       ),
     );
   }
-
-  // แปลง icon outline → filled เมื่อ active (เลียนแบบ font-variation-settings 'FILL' 1 ของเว็บ)
-  IconData _filledVariant(IconData icon) {
-    if (icon == Icons.home) return Icons.home;
-    if (icon == Icons.history) return Icons.history;
-    if (icon == Icons.person_outline) return Icons.person;
-    return icon;
-  }
 }
-

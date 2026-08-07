@@ -1,23 +1,8 @@
 import 'package:flutter/material.dart';
-
-/* ── Theme Colors (from :root CSS variables) ───────────────── */
-class AppColors {
-  static const navy = Color(0xFF1A3A6C);
-  static const navyDark = Color(0xFF0F2347);
-  static const navyMid = Color(0xFF3F5D9C);
-  static const navyLight = Color(0xFFEEF2FB);
-  static const gold = Color(0xFFFFD700);
-  static const bg = Color(0xFFF0F3FA);
-
-  static const pending = Color(0xFFD97706);
-  static const pendingBg = Color(0xFFFEF3C7);
-  static const working = Color(0xFF1D4ED8);
-  static const workingBg = Color(0xFFDBEAFE);
-  static const done = Color(0xFF166534);
-  static const doneBg = Color(0xFFDCFCE7);
-  static const cancel = Color(0xFFB91C1C);
-  static const cancelBg = Color(0xFFFEE2E2);
-}
+import 'package:student_dorm/color/colors.dart';
+import 'package:student_dorm/screen/home_screen.dart';
+import 'package:student_dorm/screen/profile_screen.dart';
+import 'package:student_dorm/widgets/bottom_nav.dart';
 
 /* ── Data Model (TODO: replace with backend model, e.g. repair_request join) ── */
 class RepairCase {
@@ -47,10 +32,10 @@ class StatusInfo {
 }
 
 const Map<String, StatusInfo> kStatusConfig = {
-  'pending': StatusInfo('รอตรวจสอบ', AppColors.pending, AppColors.pendingBg),
-  'working': StatusInfo('อยู่ระหว่างการซ่อม', AppColors.working, AppColors.workingBg),
-  'done': StatusInfo('เสร็จสิ้น', AppColors.done, AppColors.doneBg),
-  'cancel': StatusInfo('ยกเลิก', AppColors.cancel, AppColors.cancelBg),
+  'pending': StatusInfo('รอตรวจสอบ', kPending, kPendingBg),
+  'working': StatusInfo('อยู่ระหว่างการซ่อม', kWorking, kWorkingBg),
+  'done': StatusInfo('เสร็จสิ้น', kDone, kDoneBg),
+  'cancel': StatusInfo('ยกเลิก', kRsError, kCancelBg),
 };
 
 const Map<String, int> kStatusOrder = {
@@ -96,7 +81,7 @@ class _HistoryPageState extends State<HistoryPage> {
   String _searchQuery = '';
   String _sortKey = 'date'; // date | type | status
   String _dateDir = 'desc'; // desc | asc
-  int _navIndex = 1; // 0=home,1=history,2=profile
+  final int _navIndex = 1; // 0=home,1=history,2=profile
 
   @override
   void dispose() {
@@ -154,8 +139,18 @@ class _HistoryPageState extends State<HistoryPage> {
   }
 
   void _onNavTap(int index) {
-    setState(() => _navIndex = index);
-    // TODO: Navigator.pushReplacementNamed(context, ['/home','/history','/profile'][index]);
+    if (index == _navIndex) return;
+    if (index == 0) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const HomeScreen()),
+      );
+    } else if (index == 2) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const ProfileScreen()),
+      );
+    }
   }
 
   @override
@@ -163,7 +158,7 @@ class _HistoryPageState extends State<HistoryPage> {
     final list = _filteredSorted;
 
     return Scaffold(
-      backgroundColor: AppColors.bg,
+      backgroundColor: kBg,
       body: Stack(
         children: [
           Column(
@@ -195,19 +190,19 @@ class _HistoryPageState extends State<HistoryPage> {
                                       style: const TextStyle(
                                           fontSize: 17,
                                           fontWeight: FontWeight.w700,
-                                          color: AppColors.navy)),
+                                          color: kNavy)),
                                   Container(
                                     padding: const EdgeInsets.symmetric(
                                         horizontal: 13, vertical: 3),
                                     decoration: BoxDecoration(
-                                      color: AppColors.navyLight,
+                                      color: kNavyLight,
                                       borderRadius: BorderRadius.circular(999),
                                     ),
                                     child: Text('${list.length}',
                                         style: const TextStyle(
                                             fontSize: 12,
                                             fontWeight: FontWeight.w700,
-                                            color: AppColors.navyMid)),
+                                            color: kNavyMid)),
                                   ),
                                 ],
                               ),
@@ -227,7 +222,8 @@ class _HistoryPageState extends State<HistoryPage> {
             left: 20,
             right: 20,
             bottom: 20,
-            child: BottomNavBar(
+            child: BottomNav(
+              height: 64,
               currentIndex: _navIndex,
               onTap: _onNavTap,
             ),
@@ -291,7 +287,7 @@ class _HistoryHeader extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment(0, -1),
           end: Alignment(0, 1),
-          colors: [Color(0xFFFFE84E), AppColors.gold, Color(0xFFF5C400)],
+          colors: [Color(0xFFFFE84E), kGoldMid, Color(0xFFF5C400)],
           stops: [0.0, 0.5, 1.0],
         ),
         borderRadius: BorderRadius.vertical(bottom: Radius.circular(30)),
@@ -313,7 +309,7 @@ class _HistoryHeader extends StatelessWidget {
                         style: TextStyle(
                             fontSize: 24,
                             fontWeight: FontWeight.w800,
-                            color: AppColors.navyDark)),
+                            color: kNavyDark)),
                     SizedBox(height: 4),
                     Text('รายการซ่อมครุภัณฑ์ทั้งหมดของคุณ',
                         style: TextStyle(
@@ -334,7 +330,7 @@ class _HistoryHeader extends StatelessWidget {
                     style: const TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
-                        color: AppColors.navyDark)),
+                        color: kNavyDark)),
               ),
             ],
           ),
@@ -353,7 +349,7 @@ class _HistoryHeader extends StatelessWidget {
                 Container(
                   height: 44,
                   decoration: BoxDecoration(
-                    color: AppColors.bg,
+                    color: kBg,
                     border: Border.all(color: const Color(0xFFE2E8F4), width: 1.5),
                     borderRadius: BorderRadius.circular(11),
                   ),
@@ -367,7 +363,7 @@ class _HistoryHeader extends StatelessWidget {
                         child: TextField(
                           controller: searchController,
                           onChanged: onSearchChanged,
-                          style: const TextStyle(fontSize: 14, color: AppColors.navy),
+                          style: const TextStyle(fontSize: 14, color: kNavy),
                           decoration: const InputDecoration(
                             isDense: true,
                             border: InputBorder.none,
@@ -476,7 +472,7 @@ class SortChip extends StatelessWidget {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.fromLTRB(10, 7, 12, 7),
         decoration: BoxDecoration(
-          color: active ? AppColors.navy : AppColors.bg,
+          color: active ? kNavy : kBg,
           borderRadius: BorderRadius.circular(999),
           boxShadow: active
               ? [const BoxShadow(color: Color(0x481A3A6C), blurRadius: 12, offset: Offset(0, 3))]
@@ -584,7 +580,7 @@ class RepairCard extends StatelessWidget {
                               style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF9CA3AF), letterSpacing: .8)),
                           const SizedBox(height: 2),
                           Text('#${data.id}',
-                              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.navy)),
+                              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: kNavy)),
                         ],
                       ),
                       Column(
@@ -629,11 +625,11 @@ class RepairCard extends StatelessWidget {
                                   .map((t) => Container(
                                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
                                         decoration: BoxDecoration(
-                                          color: AppColors.navyLight,
+                                          color: kNavyLight,
                                           borderRadius: BorderRadius.circular(999),
                                         ),
                                         child: Text(t,
-                                            style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: AppColors.navyMid)),
+                                            style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: kNavyMid)),
                                       ))
                                   .toList(),
                             ),
@@ -706,77 +702,6 @@ class _EmptyState extends StatelessWidget {
                 style: TextStyle(fontSize: 13.5, color: Color(0xFF9CA3AF))),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/* ═══════════════════════════════════════════════════════════
-   BottomNavBar — STATELESS
-   เหตุผล: รับ currentIndex + onTap callback จาก parent
-   (parent เก็บ _navIndex เพราะต้อง sync กับหน้าที่แสดงจริง)
-   ═══════════════════════════════════════════════════════════ */
-class BottomNavBar extends StatelessWidget {
-  final int currentIndex;
-  final ValueChanged<int> onTap;
-
-  const BottomNavBar({super.key, required this.currentIndex, required this.onTap});
-
-  static const _items = [
-    (Icons.home, 'หน้าหลัก'),
-    (Icons.history, 'ประวัติแจ้ง'),
-    (Icons.person, 'โปรไฟล์'),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 64,
-      padding: const EdgeInsets.all(6),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFFFFE033), AppColors.gold, Color(0xFFF7C800)],
-          stops: [0.0, 0.6, 1.0],
-        ),
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: const [
-          BoxShadow(color: Color(0x61C8A000), blurRadius: 32, offset: Offset(0, 8)),
-          BoxShadow(color: Color(0x1A000000), blurRadius: 8, offset: Offset(0, 2)),
-        ],
-      ),
-      child: Row(
-        children: List.generate(_items.length, (i) {
-          final active = i == currentIndex;
-          final (icon, label) = _items[i];
-          return Expanded(
-            child: InkWell(
-              borderRadius: BorderRadius.circular(16),
-              onTap: () => onTap(i),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 220),
-                margin: const EdgeInsets.symmetric(horizontal: 2),
-                decoration: BoxDecoration(
-                  color: active ? Colors.white.withOpacity(.6) : Colors.transparent,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(icon, size: 22, color: active ? AppColors.navy : Colors.black.withOpacity(.40)),
-                    const SizedBox(height: 2),
-                    Text(label,
-                        style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                            color: active ? AppColors.navy : Colors.black.withOpacity(.40))),
-                  ],
-                ),
-              ),
-            ),
-          );
-        }),
       ),
     );
   }

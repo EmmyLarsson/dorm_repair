@@ -43,3 +43,13 @@ const Color kRsSavedBorder  = Color(0xFFE0D8BE);
 
 const Color kRsBorder   = Color(0xFFE0DAC8);
 const Color kRsChipIcon = Color(0xFF8E8672);
+
+const Color kBg         = Color(0xFFF0F3FA);
+
+const Color kPending    = Color(0xFFD97706);
+const Color kPendingBg  = Color(0xFFFEF3C7);
+const Color kWorking    = Color(0xFF1D4ED8);
+const Color kWorkingBg  = Color(0xFFDBEAFE);
+const Color kDone       = Color(0xFF166534);
+const Color kDoneBg     = Color(0xFFDCFCE7);
+const Color kCancelBg   = Color(0xFFFEE2E2);

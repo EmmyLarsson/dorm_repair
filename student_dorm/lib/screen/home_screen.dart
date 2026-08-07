@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:student_dorm/models/repair_request_model.dart';
+import 'package:student_dorm/screen/history_screen.dart';
+import 'package:student_dorm/screen/profile_screen.dart';
 import 'package:student_dorm/screen/report_submit_screen.dart';
 
 import 'dart:convert';
@@ -72,6 +74,21 @@ class _HomeScreenState extends State<HomeScreen> {
     _fetchData();
   }
 
+  void _onNavTap(BuildContext context, int index) {
+    if (index == 0) return;
+    if (index == 1) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const HistoryPage()),
+      );
+    } else if (index == 2) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const ProfileScreen()),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final textTheme = GoogleFonts.sarabunTextTheme(Theme.of(context).textTheme);
@@ -123,7 +140,11 @@ class _HomeScreenState extends State<HomeScreen> {
               left: 20,
               right: 20,
               bottom: tabBarBottom,
-              child: BottomNav(height: tabBarHeight),
+              child: BottomNav(
+                height: tabBarHeight,
+                currentIndex: 0,
+                onTap: (index) => _onNavTap(context, index),
+              ),
             ),
           ],
         ),
