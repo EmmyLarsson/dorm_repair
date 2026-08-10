@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:student_dorm/screen/home_screen.dart';
+import 'package:student_dorm/screen/main_screen.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'dart:convert';
@@ -463,7 +463,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!result.isError) {
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (context) => const HomeScreen()),
+          MaterialPageRoute(builder: (context) => const MainScreen()),
         );
       } else {
         showDialog(

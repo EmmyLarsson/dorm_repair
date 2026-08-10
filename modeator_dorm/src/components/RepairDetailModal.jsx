@@ -1,6 +1,7 @@
 // RepairDetailModal.jsx
 import React, { useEffect, useState } from 'react';
 import BaseModal from './BaseModal';
+import RejectReasonModal from './RejectReasonModal';
 import { InfoRow, SectionHeader, MetadataBadge } from './ui/InfoRow';
 import { getRepairRequestDetail } from '../services/appApi';
 
@@ -8,6 +9,7 @@ const RepairDetailModal = ({ repairId, onClose, onApprove, onReject }) => {
   const isOpen = repairId !== null && repairId !== undefined;
 
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+  const [isRejectOpen, setIsRejectOpen] = useState(false);
   const [detail, setDetail] = useState(null);
 
   // ดึงข้อมูลแจ้งซ่อมจริงของ นศ. จาก server ทุกครั้งที่เปลี่ยน repairId
@@ -41,12 +43,14 @@ const RepairDetailModal = ({ repairId, onClose, onApprove, onReject }) => {
     contactPhone: phoneNumber = '-',
     roomNumber = '-',
     imageUrl = null,
+    statusId = null,
   } = detail || {};
 
   const repairType = typeNames.length ? typeNames.join(', ') : '-';
   const allowAccess = allowEntry ? 'ได้' : 'ไม่ได้';
+  const isPending = statusId === 1;
 
-  const footerContent = (
+  const footerContent = isPending && (
     <>
       <div className="flex items-center gap-2 text-slate-500 text-xs">
         <span className="material-symbols-outlined text-sm">info</span>
@@ -54,7 +58,7 @@ const RepairDetailModal = ({ repairId, onClose, onApprove, onReject }) => {
       </div>
       <div className="flex items-center gap-3 w-full md:w-auto">
         <button
-          onClick={() => onReject?.(detail)}
+          onClick={() => setIsRejectOpen(true)}
           disabled={!detail}
           className="flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-full bg-red-100 text-red-700 text-sm font-bold hover:bg-red-700 hover:text-white transition-all duration-200 active:scale-95 disabled:opacity-50 disabled:pointer-events-none"
         >
@@ -160,6 +164,16 @@ const RepairDetailModal = ({ repairId, onClose, onApprove, onReject }) => {
           <img src={imageUrl} alt="Full view" className="max-w-full max-h-full object-contain rounded-2xl" onClick={(e) => e.stopPropagation()} />
         </div>
       )}
+
+      <RejectReasonModal
+        isOpen={isRejectOpen}
+        caseCode={caseId}
+        onClose={() => setIsRejectOpen(false)}
+        onConfirm={(reason) => {
+          setIsRejectOpen(false);
+          onReject?.(detail, reason);
+        }}
+      />
     </>
   );
 };

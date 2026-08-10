@@ -3,41 +3,51 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:student_dorm/models/repair_request_model.dart';
 import 'package:student_dorm/color/colors.dart';
 
-const _statusBar = {
-  'รอตรวจสอบ': Color(0xFFF59E0B),
-  'กำลังซ่อม': Color(0xFF3F5D9C),
-  'เสร็จแล้ว': Color(0xFF16A34A),
+const kStatusBarColors = {
+  'รอตรวจสอบ': kRsAmber,
+  'กำลังซ่อม': kNavyMid,
+  'เสร็จแล้ว': kRsGreen,
+  'ยกเลิก': kRsError,
 };
 
 class RepairInfo extends StatelessWidget {
   const RepairInfo({super.key, required this.repairrequestModelStore});
   final List<RepairRequestModel> repairrequestModelStore;
-  
+
   @override
   Widget build(BuildContext context) {
-    print(repairrequestModelStore.length);
-    final textTheme = GoogleFonts.sarabunTextTheme(Theme.of(context).textTheme);
     return ListView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       itemCount: repairrequestModelStore.length,
       itemBuilder: (context, index) {
-        final RepairRequestModel item = repairrequestModelStore[index];
-        print(item.createdAt);
-        final barColor = _statusBar[item.statusName] ?? kNavyMid;
+        return RepairInfoCard(item: repairrequestModelStore[index]);
+      },
+    );
+  }
+}
 
-        return Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          child: Material(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(18),
-            elevation: 0,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(18),
-              onTap: () {
-                // TODO: นำทางไปหน้ารายละเอียด
-              },
-              child: Container(
+class RepairInfoCard extends StatelessWidget {
+  const RepairInfoCard({super.key, required this.item});
+  final RepairRequestModel item;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = GoogleFonts.sarabunTextTheme(Theme.of(context).textTheme);
+    final barColor = kStatusBarColors[item.statusName] ?? kNavyMid;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        elevation: 0,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: () {
+            // TODO: นำทางไปหน้ารายละเอียด
+          },
+          child: Container(
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(18),
                   border: Border.all(color: kGray200),
@@ -154,7 +164,5 @@ class RepairInfo extends StatelessWidget {
             ),
           ),
         );
-      },
-    );
   }
 }

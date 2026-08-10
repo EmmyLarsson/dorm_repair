@@ -17,11 +17,15 @@ module.exports = {
           "  rr.description, " +
           "  ps.progress_status_id, " +
           "  ps.progress_status_name, " +
+          "  rr.technician_id, " +
+          "  CONCAT(tp.firstname, ' ', tp.lastname) AS technician_name, " +
           "  DATE_FORMAT(rr.report_date, '%Y-%m-%d %H:%i:%s') AS report_date " +
           "FROM repair_request rr " +
           "LEFT JOIN repair_request_detail rrd ON rr.request_id = rrd.request_id " +
           "LEFT JOIN repair_type rt ON rrd.repair_type_id = rt.repair_type_id " +
           "LEFT JOIN progress_status ps ON rr.progress_status_id = ps.progress_status_id " +
+          "LEFT JOIN technician t ON rr.technician_id = t.technician_id " +
+          "LEFT JOIN person tp ON t.person_id = tp.person_id " +
           "GROUP BY " +
           "  rr.request_id, " +
           "  rr.case_code, " +
@@ -30,6 +34,9 @@ module.exports = {
           "  rr.description, " +
           "  ps.progress_status_id, " +
           "  ps.progress_status_name, " +
+          "  rr.technician_id, " +
+          "  tp.firstname, " +
+          "  tp.lastname, " +
           "  rr.report_date " +
           "ORDER BY rr.report_date DESC";
 
@@ -104,11 +111,15 @@ module.exports = {
           "  rr.description, " +
           "  ps.progress_status_id, " +
           "  ps.progress_status_name, " +
+          "  rr.technician_id, " +
+          "  CONCAT(tp.firstname, ' ', tp.lastname) AS technician_name, " +
           "  DATE_FORMAT(rr.report_date, '%Y-%m-%d %H:%i:%s') AS report_date " +
           "FROM repair_request rr " +
           "LEFT JOIN repair_request_detail rrd ON rr.request_id = rrd.request_id " +
           "LEFT JOIN repair_type rt ON rrd.repair_type_id = rt.repair_type_id " +
           "LEFT JOIN progress_status ps ON rr.progress_status_id = ps.progress_status_id " +
+          "LEFT JOIN technician t ON rr.technician_id = t.technician_id " +
+          "LEFT JOIN person tp ON t.person_id = tp.person_id " +
           "WHERE rr.request_id = ? " +
           "GROUP BY " +
           "  rr.request_id, " +
@@ -120,6 +131,9 @@ module.exports = {
           "  rr.description, " +
           "  ps.progress_status_id, " +
           "  ps.progress_status_name, " +
+          "  rr.technician_id, " +
+          "  tp.firstname, " +
+          "  tp.lastname, " +
           "  rr.report_date";
 
             var rows = await conn.query(sql, [requestId]);
@@ -332,6 +346,127 @@ module.exports = {
             if (conn) {
                 conn.release();
             }
+
+            return result;
+        }
+    },
+
+    approveRepairRequest: async (requestId, accountId) => {
+        let conn;
+        let result;
+
+        try {
+            conn = await pool.getConnection();
+
+            var sql =
+                "UPDATE repair_request rr " +
+                "JOIN account a ON a.account_id = ? " +
+                "JOIN moderator m ON m.person_id = a.person_id " +
+                "SET rr.progress_status_id = 2, rr.moderator_id = m.moderator_id " +
+                "WHERE rr.request_id = ?";
+
+            await conn.query(sql, [accountId, requestId]);
+
+            result = {
+                isError: false,
+                data: "",
+                errorMessage: ""
+            };
+        } catch (error) {
+            result = {
+                isError: true,
+                data: "",
+                errorMessage: error.message
+            }
+        } finally {
+            if (conn)
+                conn.release();
+
+            return result;
+        }
+    },
+
+    rejectRepairRequest: async (requestId, accountId, reason) => {
+        let conn;
+        let result;
+
+        try {
+            conn = await pool.getConnection();
+            await conn.beginTransaction();
+
+            var moderatorSql =
+                "SELECT m.moderator_id " +
+                "FROM account a " +
+                "JOIN moderator m ON m.person_id = a.person_id " +
+                "WHERE a.account_id = ?";
+
+            var moderatorRows = await conn.query(moderatorSql, [accountId]);
+            var moderatorId = moderatorRows[0] ? moderatorRows[0].moderator_id : null;
+
+            var insertSql =
+                "INSERT INTO repair_cancellation (" +
+                "request_id, cancelled_by_moderator_id, cancel_reason" +
+                ") VALUES (?, ?, ?)";
+
+            await conn.query(insertSql, [requestId, moderatorId, reason]);
+
+            var updateSql =
+                "UPDATE repair_request " +
+                "SET progress_status_id = 4 " +
+                "WHERE request_id = ?";
+
+            await conn.query(updateSql, [requestId]);
+
+            await conn.commit();
+
+            result = {
+                isError: false,
+                data: "",
+                errorMessage: ""
+            };
+        } catch (error) {
+            if (conn) {
+                await conn.rollback();
+            }
+
+            result = {
+                isError: true,
+                data: "",
+                errorMessage: error.message
+            }
+        } finally {
+            if (conn)
+                conn.release();
+
+            return result;
+        }
+    },
+
+    assignTechnician: async (requestId, technicianId) => {
+        let conn;
+        let result;
+
+        try {
+            conn = await pool.getConnection();
+
+            var sql = "UPDATE repair_request SET technician_id = ? WHERE request_id = ?";
+
+            await conn.query(sql, [technicianId, requestId]);
+
+            result = {
+                isError: false,
+                data: "",
+                errorMessage: ""
+            };
+        } catch (error) {
+            result = {
+                isError: true,
+                data: "",
+                errorMessage: error.message
+            }
+        } finally {
+            if (conn)
+                conn.release();
 
             return result;
         }

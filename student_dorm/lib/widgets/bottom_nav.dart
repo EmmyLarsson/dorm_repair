@@ -4,9 +4,21 @@ import 'package:student_dorm/color/colors.dart';
 
 class BottomNav extends StatelessWidget {
   final double height;
-  
-  const BottomNav({super.key,
-   required this.height});
+  final int currentIndex;
+  final ValueChanged<int> onTap;
+
+  static const _items = [
+    (Icons.home, 'หน้าหลัก'),
+    (Icons.history, 'ประวัติแจ้ง'),
+    (Icons.person, 'โปรไฟล์'),
+  ];
+
+  const BottomNav({
+    super.key,
+    required this.height,
+    required this.currentIndex,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -36,13 +48,16 @@ class BottomNav extends StatelessWidget {
         ],
       ),
       child: Row(
-        children: [
-          _navItem(textTheme, icon: Icons.home, label: 'หน้าหลัก', active: true),
-          const SizedBox(width: 4),
-          _navItem(textTheme, icon: Icons.history, label: 'ประวัติแจ้ง', active: false),
-          const SizedBox(width: 4),
-          _navItem(textTheme, icon: Icons.person_outline, label: 'โปรไฟล์', active: false),
-        ],
+        children: List.generate(_items.length, (i) {
+          final (icon, label) = _items[i];
+          return _navItem(
+            textTheme,
+            icon: icon,
+            label: label,
+            active: i == currentIndex,
+            onTap: () => onTap(i),
+          );
+        }),
       ),
     );
   }
@@ -52,64 +67,102 @@ class BottomNav extends StatelessWidget {
     required IconData icon,
     required String label,
     required bool active,
+    required VoidCallback onTap,
   }) {
+    return Expanded(
+      child: _NavItem(
+        textTheme: textTheme,
+        icon: icon,
+        label: label,
+        active: active,
+        onTap: onTap,
+      ),
+    );
+  }
+}
+
+class _NavItem extends StatefulWidget {
+  final TextTheme textTheme;
+  final IconData icon;
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  const _NavItem({
+    required this.textTheme,
+    required this.icon,
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  State<_NavItem> createState() => _NavItemState();
+}
+
+class _NavItemState extends State<_NavItem> {
+  bool _pressed = false;
+
+  void _setPressed(bool value) {
+    if (_pressed != value) setState(() => _pressed = value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     // active: navy บนพื้นขาวโปร่งลอย (.nav-it.active)
     // inactive: navy จางๆ 40% opacity ไม่มีพื้นหลัง (.nav-it)
-    final Color color = active ? kNavy : kNavyDark.withValues(alpha: 0.40);
+    final Color color = widget.active ? kNavy : kNavyDark.withValues(alpha: 0.40);
 
-    return Expanded(
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () {
-          // TODO: นำทางไปหน้าที่เกี่ยวข้อง (history.html / profile.html)
-        },
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOut,
-          decoration: BoxDecoration(
-            color: active ? Colors.white.withValues(alpha: 0.60) : Colors.transparent,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: active
-                ? [
-                    BoxShadow(
-                      color: const Color(0xFFC8A000).withValues(alpha: 0.22),
-                      blurRadius: 10,
-                      offset: const Offset(0, 2),
-                    ),
-                  ]
-                : null,
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                active ? _filledVariant(icon) : icon,
-                color: color,
-                size: 22,
-              ),
-              const SizedBox(height: 2),
-              Text(
-                label,
-                style: textTheme.labelSmall?.copyWith(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
+    return AnimatedScale(
+      scale: _pressed ? 0.94 : 1.0,
+      duration: const Duration(milliseconds: 100),
+      curve: Curves.easeOut,
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          splashColor: Colors.white.withValues(alpha: 0.28),
+          highlightColor: Colors.white.withValues(alpha: 0.28),
+          onTap: widget.onTap,
+          onHighlightChanged: _setPressed,
+          child: Container(
+            decoration: BoxDecoration(
+              color: widget.active ? Colors.white.withValues(alpha: 0.60) : Colors.transparent,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: widget.active
+                  ? [
+                      BoxShadow(
+                        color: const Color(0xFFC8A000).withValues(alpha: 0.22),
+                        blurRadius: 10,
+                        offset: const Offset(0, 2),
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  widget.icon,
                   color: color,
-                  letterSpacing: 0.03,
+                  size: 22,
                 ),
-              ),
-            ],
+                const SizedBox(height: 2),
+                Text(
+                  widget.label,
+                  style: widget.textTheme.labelSmall?.copyWith(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: color,
+                    letterSpacing: 0.03,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
-
-  // แปลง icon outline → filled เมื่อ active (เลียนแบบ font-variation-settings 'FILL' 1 ของเว็บ)
-  IconData _filledVariant(IconData icon) {
-    if (icon == Icons.home) return Icons.home;
-    if (icon == Icons.history) return Icons.history;
-    if (icon == Icons.person_outline) return Icons.person;
-    return icon;
-  }
 }
-

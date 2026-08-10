@@ -10,6 +10,7 @@ export class RepairRequestModel {
     description,
     statusId,
     statusName,
+    technicianName,
     createdAt,
   }) {
     this.requestId = requestId;
@@ -22,6 +23,7 @@ export class RepairRequestModel {
     this.description = description;
     this.statusId = statusId;
     this.statusName = statusName;
+    this.technicianName = technicianName;
     this.createdAt = createdAt;
   }
 
@@ -59,6 +61,7 @@ export class RepairRequestModel {
       description: json.description ?? '',
       statusId: json.progress_status_id ?? 1,
       statusName: json.progress_status_name ?? 'รอตรวจสอบ',
+      technicianName: json.technician_name ?? '',
       createdAt: json.report_date,
     });
   }

@@ -6,7 +6,6 @@ import 'package:student_dorm/screen/report_submit_screen.dart';
 import 'dart:convert';
 import 'package:student_dorm/color/colors.dart';
 import 'package:student_dorm/utils/app_api.dart';
-import 'package:student_dorm/widgets/bottom_nav.dart';
 import 'package:student_dorm/widgets/repair_info.dart';
 import 'package:student_dorm/widgets/status_card.dart';
 
@@ -118,12 +117,6 @@ class _HomeScreenState extends State<HomeScreen> {
               right: 20,
               bottom: tabBarHeight + tabBarBottom + fabAboveTab,
               child: _buildFab(textTheme),
-            ),
-            Positioned(
-              left: 20,
-              right: 20,
-              bottom: tabBarBottom,
-              child: BottomNav(height: tabBarHeight),
             ),
           ],
         ),

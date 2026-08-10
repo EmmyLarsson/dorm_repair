@@ -19,7 +19,78 @@ export const AppAPI = {
 
     return response;
   },
+
+  async post(uri, body) {
+    const accessToken = localStorage.getItem("access_token");
+    const url = `${AppConfig.apiBaseUri}${uri}`;
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type":
+          "application/json; charset=UTF-8",
+        Accept: "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+    return response;
+  },
 };
+
+function mapRepairRequestRow(row) {
+  const model = RepairRequestModel.fromJson(row);
+
+  return {
+    id: model.requestId,
+    caseCode: model.caseCode,
+    studentName: model.studentName,
+    contactPhone: model.contactPhone,
+    roomNumber: model.roomNumber,
+    allowEntry: model.allowEntry,
+    typeNames: model.typeNames,
+    description: model.description,
+    reportDate: model.getRepairRequestDateLabel(),
+    statusId: model.statusId,
+    statusName: model.statusName,
+    technicianName: model.technicianName,
+  };
+}
+
+export async function getAllRepairRequests() {
+  const response = await AppAPI.get("/repair_request/get_all");
+  const json = await response.json();
+
+  return (Array.isArray(json.data) ? json.data : []).map(mapRepairRequestRow);
+}
+
+export async function getProgressStatusList() {
+  const response = await AppAPI.get("/progress_status/get_all");
+  const json = await response.json();
+
+  return (Array.isArray(json.data) ? json.data : []).map((row) => ({
+    id: row.progress_status_id,
+    name: row.progress_status_name,
+  }));
+}
+
+export async function approveRepairRequest(requestId) {
+  const response = await AppAPI.post("/repair_request/approve", {
+    request_id: requestId,
+  });
+
+  return response.json();
+}
+
+export async function rejectRepairRequest(requestId, reason) {
+  const response = await AppAPI.post("/repair_request/reject", {
+    request_id: requestId,
+    reason,
+  });
+
+  return response.json();
+}
 
 export async function getHomeDashboard() {
   const [repairsResponse, summaryResponse] = await Promise.all([
@@ -30,20 +101,7 @@ export async function getHomeDashboard() {
   const repairsJson = await repairsResponse.json();
   const summaryJson = await summaryResponse.json();
 
-
-  const repairs = (repairsJson.data ?? []).map((row) => {
-    const model = RepairRequestModel.fromJson(row);
-
-    return {
-      id: model.requestId,
-      caseCode: model.caseCode,
-      studentName: model.studentName,
-      roomNumber: model.roomNumber,
-      reportDate: model.getRepairRequestDateLabel(),
-      statusId: model.statusId,
-      statusName: model.statusName,
-    };
-  });
+  const repairs = (Array.isArray(repairsJson.data) ? repairsJson.data : []).map(mapRepairRequestRow);
 
   const repairSummary = {
     pending: 0,
@@ -86,6 +144,27 @@ export async function getRepairRequestDetail(requestId) {
     description: model.description,
     statusId: model.statusId,
     statusName: model.statusName,
+    technicianName: model.technicianName,
     reportDate: model.getRepairRequestDateLabel(),
   };
+}
+
+export async function getTechnicianList() {
+  const response = await AppAPI.get("/technician/get_all");
+  const json = await response.json();
+
+  return (Array.isArray(json.data) ? json.data : []).map((row) => ({
+    id: row.technician_id,
+    name: row.full_name,
+    specialtyName: row.specialty_name,
+  }));
+}
+
+export async function assignTechnician(requestId, technicianId) {
+  const response = await AppAPI.post("/repair_request/assign_technician", {
+    request_id: requestId,
+    technician_id: technicianId,
+  });
+
+  return response.json();
 }

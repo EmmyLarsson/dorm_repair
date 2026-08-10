@@ -5,7 +5,7 @@ import MainLayout from "./layouts/MainLayout";
 
 import LoginPage from "./pages/LoginPage";
 import HomePage from "./pages/HomePage";
-// import RepairManagementPage from "./pages/RepairManagementPage";
+import RepairManagementPage from "./pages/RepairManagementPage";
 // import InventoryPage from "./pages/InventoryPage";
 // import ReportPage from "./pages/ReportPage";
 // import PersonnelPage from "./pages/PersonnelPage";
@@ -25,12 +25,12 @@ export default function Moderator() {
           element={<HomePage />}
         />
 
-        {/* <Route
+        <Route
           path="/moderator/repairs"
           element={<RepairManagementPage />}
         />
 
-        <Route
+        {/* <Route
           path="/moderator/inventory"
           element={<InventoryPage />}
         />

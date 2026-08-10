@@ -1,11 +1,16 @@
 import {useEffect, useMemo, useState,} from 'react';
 import { useNavigate } from 'react-router-dom';
-import {getHomeDashboard,} from "../services/appApi"
+import {
+  getHomeDashboard,
+  approveRepairRequest,
+  rejectRepairRequest,
+} from "../services/appApi"
 import StatusCard from '../components/StatusCard';
 import RepairCard from '../components/RepairCard';
 import RepairDetailModal from '../components/RepairDetailModal';
+import RejectReasonModal from '../components/RejectReasonModal';
 
-const PAGE_SIZE = 4;
+const PAGE_SIZE = 6;
 
 const initialDashboard = {
   repairSummary: {
@@ -40,43 +45,46 @@ function HomePage() {
   const [viewingRepairId, setViewingRepairId] =
     useState(null);
 
+  const [rejectingRepair, setRejectingRepair] =
+    useState(null);
+
   /*
    ดึงข้อมูลหน้า Home จาก Server
+   (แสดงเฉพาะรายการที่ "รอตรวจสอบ" เท่านั้น เคสที่อนุมัติ/ปฏิเสธแล้วจะย้ายไปหน้าจัดการงานซ่อม)
   */
-  useEffect(() => {
-    async function fetchDashboard() {
-      try {
-        setIsLoading(true);
-        setError('');
+  async function fetchDashboard() {
+    try {
+      setIsLoading(true);
+      setError('');
 
-        const data = await getHomeDashboard();
+      const data = await getHomeDashboard();
 
-        setDashboard({
-          repairSummary:
-            data.repairSummary ??
-            initialDashboard.repairSummary,
+      setDashboard({
+        repairSummary:
+          data.repairSummary ??
+          initialDashboard.repairSummary,
 
-          repairs:
-            Array.isArray(data.repairs)
-              ? data.repairs
-              : [],
+        repairs:
+          (Array.isArray(data.repairs) ? data.repairs : [])
+            .filter((repair) => repair.statusId === 1),
 
-          inventoryAlerts:
-            Array.isArray(data.inventoryAlerts)
-              ? data.inventoryAlerts
-              : [],
-        });
-      } catch (fetchError) {
-        setError(
-          fetchError instanceof Error
-            ? fetchError.message
-            : 'ไม่สามารถโหลดข้อมูลได้',
-        );
-      } finally {
-        setIsLoading(false);
-      }
+        inventoryAlerts:
+          Array.isArray(data.inventoryAlerts)
+            ? data.inventoryAlerts
+            : [],
+      });
+    } catch (fetchError) {
+      setError(
+        fetchError instanceof Error
+          ? fetchError.message
+          : 'ไม่สามารถโหลดข้อมูลได้',
+      );
+    } finally {
+      setIsLoading(false);
     }
+  }
 
+  useEffect(() => {
     fetchDashboard();
   }, []);
 
@@ -138,20 +146,13 @@ function HomePage() {
     }
 
     try {
-      await approveRepair(repair.id);
+      const response = await approveRepairRequest(repair.id);
 
-      setDashboard((previous) => ({
-        ...previous,
+      if (response.isError) {
+        throw new Error(response.errorMessage);
+      }
 
-        repairs: previous.repairs.map((item) =>
-          item.id === repair.id
-            ? {
-                ...item,
-                status: 'waiting',
-              }
-            : item,
-        ),
-      }));
+      await fetchDashboard();
     } catch (approveError) {
       alert(
         approveError instanceof Error
@@ -161,25 +162,15 @@ function HomePage() {
     }
   }
 
-  async function handleReject(repair) {
-    const confirmed = window.confirm(
-      `ยืนยันการปฏิเสธ Case ${repair.caseCode}?`,
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
+  async function handleReject(repair, reason) {
     try {
-      await rejectRepair(repair.id);
+      const response = await rejectRepairRequest(repair.id, reason);
 
-      setDashboard((previous) => ({
-        ...previous,
+      if (response.isError) {
+        throw new Error(response.errorMessage);
+      }
 
-        repairs: previous.repairs.filter(
-          (item) => item.id !== repair.id,
-        ),
-      }));
+      await fetchDashboard();
     } catch (rejectError) {
       alert(
         rejectError instanceof Error
@@ -259,7 +250,7 @@ function HomePage() {
 
           <button
             type="button"
-            onClick={() => navigate('/repairs')}
+            onClick={() => navigate('/moderator/repairs')}
             className="flex items-center gap-1 text-sm font-bold text-blue-800 hover:underline"
           >
             ดูรายละเอียดทั้งหมด
@@ -313,13 +304,13 @@ function HomePage() {
             message="ยังไม่มีรายการแจ้งซ่อม"
           />
         ) : (
-          <div className="grid gap-5 xl:grid-cols-2">
+          <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
             {visibleRepairs.map((repair) => (
               <RepairCard
                 key={repair.id}
                 repair={repair}
                 onApprove={handleApprove}
-                onReject={handleReject}
+                onReject={setRejectingRepair}
                 onView={() =>
                   setViewingRepairId(repair.id)
                 }
@@ -355,9 +346,20 @@ function HomePage() {
           setViewingRepairId(null);
           handleApprove(repair);
         }}
-        onReject={(repair) => {
+        onReject={(repair, reason) => {
           setViewingRepairId(null);
-          handleReject(repair);
+          handleReject(repair, reason);
+        }}
+      />
+
+      <RejectReasonModal
+        isOpen={!!rejectingRepair}
+        caseCode={rejectingRepair?.caseCode}
+        onClose={() => setRejectingRepair(null)}
+        onConfirm={(reason) => {
+          const repair = rejectingRepair;
+          setRejectingRepair(null);
+          handleReject(repair, reason);
         }}
       />
     </div>

@@ -7,6 +7,7 @@ const jwt = require('./libs/jwt');
 const dateUtils = require('./libs/date_utils');
 const repair_request = require('./models/repair_request');
 const progress_status = require('./models/progress_status');
+const technician = require('./models/technician');
 
 const app = express();   
 app.use(bp.urlencoded({ extended: true}));
@@ -158,6 +159,36 @@ app.post("/api/repair_request/create", checkAccessToken, async (req, res) => {
     const allowEntry = req.body.allow_entry;
 
     const response = await repair_request.createRepairRequest(studentId, name, phone, roomNumber, repairTypeIds, description, allowEntry);
+    res.json(response);
+});
+
+app.post("/api/repair_request/approve", checkAccessToken, async (req, res) => {
+    const requestId = req.body.request_id;
+    const accountId = req.decoded.user_id;
+
+    const response = await repair_request.approveRepairRequest(requestId, accountId);
+    res.json(response);
+});
+
+app.post("/api/repair_request/reject", checkAccessToken, async (req, res) => {
+    const requestId = req.body.request_id;
+    const reason = req.body.reason;
+    const accountId = req.decoded.user_id;
+
+    const response = await repair_request.rejectRepairRequest(requestId, accountId, reason);
+    res.json(response);
+});
+
+app.post("/api/repair_request/assign_technician", checkAccessToken, async (req, res) => {
+    const requestId = req.body.request_id;
+    const technicianId = req.body.technician_id;
+
+    const response = await repair_request.assignTechnician(requestId, technicianId);
+    res.json(response);
+});
+
+app.get("/api/technician/get_all", checkAccessToken, async (req, res) => {
+    const response = await technician.getAllTechnicians();
     res.json(response);
 });
 
