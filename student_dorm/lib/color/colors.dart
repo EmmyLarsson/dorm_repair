@@ -53,3 +53,13 @@ const Color kBlueDark  = Color(0xFF2563EB);
 const Color kAmber     = Color(0xFFF59E0B);
 const Color kAmberDark = Color(0xFFD97706);
 const Color kSlateDark = Color(0xFF64748B);
+
+const Color kBg         = Color(0xFFF0F3FA);
+
+const Color kPending    = Color(0xFFD97706);
+const Color kPendingBg  = Color(0xFFFEF3C7);
+const Color kWorking    = Color(0xFF1D4ED8);
+const Color kWorkingBg  = Color(0xFFDBEAFE);
+const Color kDone       = Color(0xFF166534);
+const Color kDoneBg     = Color(0xFFDCFCE7);
+const Color kCancelBg   = Color(0xFFFEE2E2);
