@@ -43,3 +43,13 @@ const Color kRsSavedBorder  = Color(0xFFE0D8BE);
 
 const Color kRsBorder   = Color(0xFFE0DAC8);
 const Color kRsChipIcon = Color(0xFF8E8672);
+
+const Color kText      = Color(0xFF1E293B);
+const Color kTextMuted = Color(0xFF94A3B8);
+const Color kGreen     = Color(0xFF22C55E);
+const Color kGreenDark = Color(0xFF16A34A);
+const Color kBlue      = Color(0xFF3B82F6);
+const Color kBlueDark  = Color(0xFF2563EB);
+const Color kAmber     = Color(0xFFF59E0B);
+const Color kAmberDark = Color(0xFFD97706);
+const Color kSlateDark = Color(0xFF64748B);

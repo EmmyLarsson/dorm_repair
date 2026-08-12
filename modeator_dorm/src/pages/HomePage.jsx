@@ -1,16 +1,88 @@
 import {useEffect, useMemo, useState,} from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  getHomeDashboard,
-  approveRepairRequest,
-  rejectRepairRequest,
-} from "../services/appApi"
+import { AppAPI } from '../services/appApi';
+import { RepairRequestModel } from '../models/repairRequestModel';
 import StatusCard from '../components/StatusCard';
 import RepairCard from '../components/RepairCard';
 import RepairDetailModal from '../components/RepairDetailModal';
 import RejectReasonModal from '../components/RejectReasonModal';
 
 const PAGE_SIZE = 6;
+
+function mapRepairRequestRow(row) {
+  const model = RepairRequestModel.fromJson(row);
+
+  return {
+    id: model.requestId,
+    caseCode: model.caseCode,
+    studentName: model.studentName,
+    contactPhone: model.contactPhone,
+    roomNumber: model.roomNumber,
+    allowEntry: model.allowEntry,
+    typeNames: model.typeNames,
+    description: model.description,
+    reportDate: model.getRepairRequestDateLabel(),
+    statusId: model.statusId,
+    statusName: model.statusName,
+    technicianId: model.technicianId,
+    technicianName: model.technicianName,
+    appointmentDate: model.appointmentDate,
+    appointmentDateLabel: model.getAppointmentDateLabel(),
+  };
+}
+
+async function getHomeDashboard() {
+  const [repairsResponse, summaryResponse] = await Promise.all([
+    AppAPI.get("/repair_request/get_all"),
+    AppAPI.get("/repair_request/get_summary"),
+  ]);
+
+  const repairsJson = await repairsResponse.json();
+  const summaryJson = await summaryResponse.json();
+
+  const repairs = (Array.isArray(repairsJson.data) ? repairsJson.data : []).map(mapRepairRequestRow);
+
+  const repairSummary = {
+    pending: 0,
+    waiting: 0,
+    completed: 0,
+  };
+
+  for (const row of summaryJson.data ?? []) {
+    const total = Number(row.total) || 0;
+
+    if (row.progress_status_id === 1) {
+      repairSummary.pending = total;
+    } else if (row.progress_status_id === 2) {
+      repairSummary.waiting = total;
+    } else if (row.progress_status_id === 3) {
+      repairSummary.completed = total;
+    }
+  }
+
+  return {
+    repairSummary,
+    repairs,
+    inventoryAlerts: [],
+  };
+}
+
+async function approveRepairRequest(requestId) {
+  const response = await AppAPI.post("/repair_request/approve", {
+    request_id: requestId,
+  });
+
+  return response.json();
+}
+
+async function rejectRepairRequest(requestId, reason) {
+  const response = await AppAPI.post("/repair_request/reject", {
+    request_id: requestId,
+    reason,
+  });
+
+  return response.json();
+}
 
 const initialDashboard = {
   repairSummary: {
@@ -52,9 +124,11 @@ function HomePage() {
    ดึงข้อมูลหน้า Home จาก Server
    (แสดงเฉพาะรายการที่ "รอตรวจสอบ" เท่านั้น เคสที่อนุมัติ/ปฏิเสธแล้วจะย้ายไปหน้าจัดการงานซ่อม)
   */
-  async function fetchDashboard() {
+  async function fetchDashboard(silent = false) {
     try {
-      setIsLoading(true);
+      if (!silent) {
+        setIsLoading(true);
+      }
       setError('');
 
       const data = await getHomeDashboard();
@@ -80,12 +154,18 @@ function HomePage() {
           : 'ไม่สามารถโหลดข้อมูลได้',
       );
     } finally {
-      setIsLoading(false);
+      if (!silent) {
+        setIsLoading(false);
+      }
     }
   }
 
   useEffect(() => {
     fetchDashboard();
+
+    // อัปเดตรายการแจ้งซ่อมอัตโนมัติ ไม่ต้องรอให้เจ้าหน้าที่รีเฟรชหน้าเอง
+    const intervalId = window.setInterval(() => fetchDashboard(true), 5000);
+    return () => window.clearInterval(intervalId);
   }, []);
 
   /*

@@ -5,16 +5,146 @@ import StatusPill from '../components/StatusPill';
 import RepairCard from '../components/RepairCard.jsx';
 import RepairDetailModal from '../components/RepairDetailModal';
 import RejectReasonModal from '../components/RejectReasonModal';
-import {
-  getAllRepairRequests,
-  getProgressStatusList,
-  approveRepairRequest,
-  rejectRepairRequest,
-  getTechnicianList,
-  assignTechnician,
-} from '../services/appApi';
+import { AppAPI } from '../services/appApi';
+import { RepairRequestModel } from '../models/repairRequestModel';
 
 const CARDS_PER_PAGE = 6;
+
+function mapRepairRequestRow(row) {
+  const model = RepairRequestModel.fromJson(row);
+
+  return {
+    id: model.requestId,
+    caseCode: model.caseCode,
+    studentName: model.studentName,
+    contactPhone: model.contactPhone,
+    roomNumber: model.roomNumber,
+    allowEntry: model.allowEntry,
+    typeNames: model.typeNames,
+    description: model.description,
+    reportDate: model.getRepairRequestDateLabel(),
+    statusId: model.statusId,
+    statusName: model.statusName,
+    technicianId: model.technicianId,
+    technicianName: model.technicianName,
+    appointmentDate: model.appointmentDate,
+    appointmentDateLabel: model.getAppointmentDateLabel(),
+  };
+}
+
+async function getAllRepairRequests() {
+  const response = await AppAPI.get("/repair_request/get_all");
+  const json = await response.json();
+
+  return (Array.isArray(json.data) ? json.data : []).map(mapRepairRequestRow);
+}
+
+async function getProgressStatusList() {
+  const response = await AppAPI.get("/progress_status/get_all");
+  const json = await response.json();
+
+  return (Array.isArray(json.data) ? json.data : []).map((row) => ({
+    id: row.progress_status_id,
+    name: row.progress_status_name,
+  }));
+}
+
+async function approveRepairRequest(requestId) {
+  const response = await AppAPI.post("/repair_request/approve", {
+    request_id: requestId,
+  });
+
+  return response.json();
+}
+
+async function rejectRepairRequest(requestId, reason) {
+  const response = await AppAPI.post("/repair_request/reject", {
+    request_id: requestId,
+    reason,
+  });
+
+  return response.json();
+}
+
+async function getRepairRequestDetail(requestId) {
+  const response = await AppAPI.get(`/repair_request/get_by_id/${requestId}`);
+  const json = await response.json();
+  const model = RepairRequestModel.fromJson(json.data);
+
+  return {
+    id: model.requestId,
+    caseCode: model.caseCode,
+    studentName: model.studentName,
+    contactPhone: model.contactPhone,
+    roomNumber: model.roomNumber,
+    allowEntry: model.allowEntry,
+    typeNames: model.typeNames,
+    description: model.description,
+    statusId: model.statusId,
+    statusName: model.statusName,
+    technicianId: model.technicianId,
+    technicianName: model.technicianName,
+    appointmentDate: model.appointmentDate,
+    reportDate: model.getRepairRequestDateLabel(),
+  };
+}
+
+async function getRepairTimeline(requestId) {
+  const response = await AppAPI.get(`/repair_request/get_timeline/${requestId}`);
+  const json = await response.json();
+
+  return (Array.isArray(json.data) ? json.data : []).map((row) => ({
+    stepCode: row.step_code,
+    eventDetail: row.event_detail,
+    eventDate: row.event_date,
+  }));
+}
+
+async function cancelAppointment(requestId) {
+  const response = await AppAPI.post("/repair_request/cancel_appointment", {
+    request_id: requestId,
+  });
+
+  return response.json();
+}
+
+async function deleteRepairRequests(requestIds) {
+  const response = await AppAPI.post("/repair_request/delete", {
+    request_ids: Array.isArray(requestIds) ? requestIds : [requestIds],
+  });
+
+  return response.json();
+}
+
+async function getTechnicianList() {
+  const response = await AppAPI.get("/technician/get_all");
+  const json = await response.json();
+
+  return (Array.isArray(json.data) ? json.data : []).map((row) => ({
+    id: row.technician_id,
+    name: row.full_name,
+    specialtyName: row.specialty_name,
+  }));
+}
+
+async function assignTechnician(requestId, technicianId, appointmentDate, notes) {
+  const response = await AppAPI.post("/repair_request/assign_technician", {
+    request_id: requestId,
+    technician_id: technicianId,
+    appointment_date: appointmentDate,
+    notes,
+  });
+
+  return response.json();
+}
+
+async function completeRepairRequest(requestId) {
+  const response = await AppAPI.post("/repair_request/complete", {
+    request_id: requestId,
+  });
+
+  return response.json();
+}
 
 function RepairManagementPage() {
   const [repairData, setRepairData] = useState([]);
@@ -46,15 +176,20 @@ function RepairManagementPage() {
   // ยกเลิกงานที่อยู่ระหว่างซ่อม
   const [cancelingRepair, setCancelingRepair] = useState(null);
 
+  // เลือกการ์ด/ลบรายการแจ้งซ่อม (เฉพาะหน้านี้)
+  const [selectedIds, setSelectedIds] = useState([]);
+
   function showToast(message) {
     setToast(message);
     window.clearTimeout(showToast._t);
     showToast._t = window.setTimeout(() => setToast(''), 2800);
   }
 
-  async function fetchAll() {
+  async function fetchAll(silent = false) {
     try {
-      setIsLoading(true);
+      if (!silent) {
+        setIsLoading(true);
+      }
       setError('');
 
       const [repairs, statuses, technicians] = await Promise.all([
@@ -73,12 +208,18 @@ function RepairManagementPage() {
           : 'ไม่สามารถโหลดข้อมูลได้',
       );
     } finally {
-      setIsLoading(false);
+      if (!silent) {
+        setIsLoading(false);
+      }
     }
   }
 
   useEffect(() => {
     fetchAll();
+
+    // อัปเดตรายการแจ้งซ่อมอัตโนมัติ ไม่ต้องรอให้เจ้าหน้าที่รีเฟรชหน้าเอง
+    const intervalId = window.setInterval(() => fetchAll(true), 5000);
+    return () => window.clearInterval(intervalId);
   }, []);
 
   function findCase(requestId) {
@@ -161,16 +302,106 @@ function RepairManagementPage() {
   }
 
   /* ─── Modal 2: Manage ─── */
-  function openManageModal(requestId) {
+  async function openManageModal(requestId) {
     const r = findCase(requestId);
     if (!r) return;
     setManageRequestId(requestId);
     setManageForm({ date: '', timeslot: '09-11', technicianId: '', notes: '' });
+
+    // ถ้ามีนัดหมายอยู่แล้ว ให้ดึงข้อมูลมาเติมในฟอร์มเพื่อแก้ไข
+    if (r.appointmentDate) {
+      const [detail, timeline] = await Promise.all([
+        getRepairRequestDetail(requestId),
+        getRepairTimeline(requestId),
+      ]);
+
+      const [datePart, timePart] = (detail.appointmentDate || '').split(' ');
+      const hour = Number((timePart || '09:00:00').split(':')[0]);
+      const timeslot = hour < 13 ? '09-11' : hour < 15 ? '13-15' : '15-17';
+      const lastAppointmentStep = [...timeline].reverse().find((s) => s.stepCode === 'appointment');
+
+      setManageForm({
+        date: datePart || '',
+        timeslot,
+        technicianId: detail.technicianId ? String(detail.technicianId) : '',
+        notes: lastAppointmentStep?.eventDetail || '',
+      });
+    }
+  }
+
+  async function handleDeleteAppointment() {
+    const repair = findCase(manageRequestId);
+    if (!repair) return;
+
+    const confirmed = window.confirm(`ยืนยันการลบกำหนดนัดหมาย Case ${repair.caseCode}?`);
+    if (!confirmed) return;
+
+    const response = await cancelAppointment(manageRequestId);
+
+    if (response.isError) {
+      alert(response.errorMessage || 'ลบกำหนดนัดหมายไม่สำเร็จ');
+      return;
+    }
+
+    setManageRequestId(null);
+    showToast(`ลบกำหนดนัดหมาย Case ${repair.caseCode} เรียบร้อย`);
+    await fetchAll();
+  }
+
+  /* ─── เลือก/ลบรายการแจ้งซ่อม ─── */
+  function toggleSelect(repair) {
+    setSelectedIds((prev) =>
+      prev.includes(repair.id) ? prev.filter((id) => id !== repair.id) : [...prev, repair.id],
+    );
+  }
+
+  async function handleDeleteSelected() {
+    if (selectedIds.length === 0) return;
+
+    const confirmed = window.confirm(`คุณจะลบรายการซ่อมที่เลือกไว้ ${selectedIds.length} รายการใช่หรือไม่?`);
+    if (!confirmed) return;
+
+    const response = await deleteRepairRequests(selectedIds);
+
+    if (response.isError) {
+      alert(response.errorMessage || 'ลบรายการไม่สำเร็จ');
+      return;
+    }
+
+    setSelectedIds([]);
+    showToast('ลบรายการที่เลือกเรียบร้อย');
+    await fetchAll();
+  }
+
+  async function handleDeleteAll() {
+    if (filteredData.length === 0) return;
+
+    const confirmed = window.confirm('คุณจะลบรายการซ่อมทั้งหมดใช่หรือไม่?');
+    if (!confirmed) return;
+
+    const response = await deleteRepairRequests(filteredData.map((r) => r.id));
+
+    if (response.isError) {
+      alert(response.errorMessage || 'ลบรายการไม่สำเร็จ');
+      return;
+    }
+
+    setSelectedIds([]);
+    showToast('ลบรายการซ่อมทั้งหมดเรียบร้อย');
+    await fetchAll();
   }
 
   async function handleSaveManage() {
     const repair = findCase(manageRequestId);
-    const response = await assignTechnician(manageRequestId, manageForm.technicianId || null);
+    const startHour = manageForm.timeslot.split('-')[0].padStart(2, '0');
+    const appointmentDate = manageForm.date ? `${manageForm.date} ${startHour}:00:00` : null;
+
+    const response = await assignTechnician(
+      manageRequestId,
+      manageForm.technicianId || null,
+      appointmentDate,
+      manageForm.notes || null,
+    );
 
     if (response.isError) {
       alert(response.errorMessage || 'บันทึกการมอบหมายงานไม่สำเร็จ');
@@ -184,6 +415,20 @@ function RepairManagementPage() {
 
   /* ─── Modal 3: Review ─── */
   const reviewRepair = reviewRequestId ? findCase(reviewRequestId) : null;
+
+  async function handleCompleteCase() {
+    const repair = reviewRepair;
+    const response = await completeRepairRequest(repair.id);
+
+    if (response.isError) {
+      alert(response.errorMessage || 'ปิดเคสไม่สำเร็จ');
+      return;
+    }
+
+    setReviewRequestId(null);
+    showToast(`ปิดเคส ${repair.caseCode} เรียบร้อยแล้ว`);
+    await fetchAll();
+  }
 
   return (
     <div className="space-y-6">
@@ -232,6 +477,29 @@ function RepairManagementPage() {
         ))}
       </div>
 
+      {/* แถบลบรายการแจ้งซ่อม (เฉพาะหน้านี้) */}
+      {filteredData.length > 0 && (
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            type="button"
+            onClick={handleDeleteSelected}
+            disabled={selectedIds.length === 0}
+            className="flex items-center gap-1.5 rounded-xl bg-red-100 px-4 py-2 text-xs font-bold text-red-700 hover:bg-red-200 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <span className="material-symbols-outlined text-base">delete</span>
+            ลบที่เลือก{selectedIds.length > 0 ? ` (${selectedIds.length})` : ''}
+          </button>
+          <button
+            type="button"
+            onClick={handleDeleteAll}
+            className="flex items-center gap-1.5 rounded-xl bg-red-700 px-4 py-2 text-xs font-bold text-white hover:bg-red-800"
+          >
+            <span className="material-symbols-outlined text-base">delete_sweep</span>
+            ลบทั้งหมด
+          </button>
+        </div>
+      )}
+
       {/* Repair grid */}
       <section>
         {visibleRepairs.length === 0 ? (
@@ -251,6 +519,9 @@ function RepairManagementPage() {
                 onManage={(r) => openManageModal(r.id)}
                 onReview={(r) => setReviewRequestId(r.id)}
                 onCancel={setCancelingRepair}
+                selectable
+                isSelected={selectedIds.includes(repair.id)}
+                onToggleSelect={toggleSelect}
               />
             ))}
           </div>
@@ -307,7 +578,12 @@ function RepairManagementPage() {
         title="จัดการงานซ่อม"
         maxWidth="max-w-4xl"
         footer={
-          <div className="flex gap-3 ml-auto">
+          <div className="flex gap-3 ml-auto items-center">
+            {findCase(manageRequestId)?.appointmentDate && (
+              <button onClick={handleDeleteAppointment} className="h-11.5 px-6 rounded-full text-sm font-bold text-red-700 bg-red-100 hover:bg-red-200 flex items-center gap-2">
+                <span className="material-symbols-outlined text-lg">event_busy</span> ลบกำหนดนัดหมาย
+              </button>
+            )}
             <button onClick={() => setManageRequestId(null)} className="h-11.5 px-6 rounded-full text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200">
               ยกเลิก
             </button>
@@ -361,6 +637,20 @@ function RepairManagementPage() {
           </div>
 
           <div className="flex flex-col gap-2 md:col-span-2">
+            <label className="text-sm font-bold">รายการครุภัณฑ์ที่ใช้</label>
+            <div className="w-full min-h-15 px-4 py-3 border-[1.5px] border-dashed border-slate-300 rounded-xl text-sm text-slate-400 flex items-center">
+              ยังไม่มีรายการที่เลือก
+            </div>
+            <button
+              type="button"
+              onClick={() => showToast('ฟีเจอร์เลือกครุภัณฑ์จะเปิดใช้งานเร็วๆ นี้')}
+              className="w-fit flex items-center gap-1.5 text-sm font-bold text-blue-700 hover:text-blue-900"
+            >
+              <span className="material-symbols-outlined text-lg">add_circle</span> เพิ่มครุภัณฑ์ที่ใช้
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-2 md:col-span-2">
             <label className="text-sm font-bold">หมายเหตุ</label>
             <textarea
               value={manageForm.notes}
@@ -387,7 +677,7 @@ function RepairManagementPage() {
               <span className="material-symbols-outlined text-lg">print</span> พิมพ์รายงาน
             </button>
             <button
-              onClick={() => { showToast(`ปิดเคส ${reviewRepair?.caseCode} เรียบร้อยแล้ว`); setReviewRequestId(null); }}
+              onClick={handleCompleteCase}
               className="h-11.5 px-6 rounded-full text-sm font-bold text-white bg-blue-700 shadow-md hover:brightness-110 flex items-center gap-2"
             >
               <span className="material-symbols-outlined text-lg">task_alt</span> ปิดเคส

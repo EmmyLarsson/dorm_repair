@@ -10,7 +10,9 @@ export class RepairRequestModel {
     description,
     statusId,
     statusName,
+    technicianId,
     technicianName,
+    appointmentDate,
     createdAt,
   }) {
     this.requestId = requestId;
@@ -23,8 +25,27 @@ export class RepairRequestModel {
     this.description = description;
     this.statusId = statusId;
     this.statusName = statusName;
+    this.technicianId = technicianId;
     this.technicianName = technicianName;
+    this.appointmentDate = appointmentDate;
     this.createdAt = createdAt;
+  }
+
+  getAppointmentDateLabel() {
+    if (!this.appointmentDate) {
+      return '';
+    }
+
+    const [datePart, timePart] = this.appointmentDate.split(' ');
+    const [year, month, day] = datePart.split('-').map(Number);
+    const [hour, minute] = (timePart || '00:00:00').split(':').map(Number);
+    const date = new Date(year, month - 1, day, hour, minute);
+
+    return date.toLocaleDateString('th-TH', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    }) + ' ' + `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')} น.`;
   }
 
   getRepairRequestDate() {
@@ -61,7 +82,9 @@ export class RepairRequestModel {
       description: json.description ?? '',
       statusId: json.progress_status_id ?? 1,
       statusName: json.progress_status_name ?? 'รอตรวจสอบ',
+      technicianId: json.technician_id ?? null,
       technicianName: json.technician_name ?? '',
+      appointmentDate: json.appointment_date ?? null,
       createdAt: json.report_date,
     });
   }

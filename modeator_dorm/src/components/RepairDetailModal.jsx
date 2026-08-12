@@ -3,7 +3,31 @@ import React, { useEffect, useState } from 'react';
 import BaseModal from './BaseModal';
 import RejectReasonModal from './RejectReasonModal';
 import { InfoRow, SectionHeader, MetadataBadge } from './ui/InfoRow';
-import { getRepairRequestDetail } from '../services/appApi';
+import { AppAPI } from '../services/appApi';
+import { RepairRequestModel } from '../models/repairRequestModel';
+
+async function getRepairRequestDetail(requestId) {
+  const response = await AppAPI.get(`/repair_request/get_by_id/${requestId}`);
+  const json = await response.json();
+  const model = RepairRequestModel.fromJson(json.data);
+
+  return {
+    id: model.requestId,
+    caseCode: model.caseCode,
+    studentName: model.studentName,
+    contactPhone: model.contactPhone,
+    roomNumber: model.roomNumber,
+    allowEntry: model.allowEntry,
+    typeNames: model.typeNames,
+    description: model.description,
+    statusId: model.statusId,
+    statusName: model.statusName,
+    technicianId: model.technicianId,
+    technicianName: model.technicianName,
+    appointmentDate: model.appointmentDate,
+    reportDate: model.getRepairRequestDateLabel(),
+  };
+}
 
 const RepairDetailModal = ({ repairId, onClose, onApprove, onReject }) => {
   const isOpen = repairId !== null && repairId !== undefined;

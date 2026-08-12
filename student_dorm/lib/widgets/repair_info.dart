@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:student_dorm/models/repair_request_model.dart';
 import 'package:student_dorm/color/colors.dart';
+import 'package:student_dorm/screen/repair_detail.dart';
 
 const kStatusBarColors = {
   'รอตรวจสอบ': kRsAmber,
@@ -45,7 +46,12 @@ class RepairInfoCard extends StatelessWidget {
         child: InkWell(
           borderRadius: BorderRadius.circular(18),
           onTap: () {
-            // TODO: นำทางไปหน้ารายละเอียด
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => CaseStatusScreen(requestId: item.requestId),
+              ),
+            );
           },
           child: Container(
                 decoration: BoxDecoration(

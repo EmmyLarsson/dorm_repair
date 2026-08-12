@@ -13,11 +13,31 @@ const STATUS_BADGE_CLASS = {
  *   เสร็จสิ้น (3)      -> ดูเพิ่มเติม + ตรวจสอบ
  *   ปฏิเสธ/ยกเลิก (4)  -> ดูเพิ่มเติม เท่านั้น
  */
-function RepairCard({ repair, onView, onApprove, onReject, onManage, onReview, onCancel }) {
+function RepairCard({
+  repair,
+  onView,
+  onApprove,
+  onReject,
+  onManage,
+  onReview,
+  onCancel,
+  selectable = false,
+  isSelected = false,
+  onToggleSelect,
+}) {
   const repairType = repair.typeNames?.length ? repair.typeNames.join(', ') : '-';
 
   return (
-    <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-lg flex flex-col">
+    <article className="relative rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-lg flex flex-col">
+      {selectable && (
+        <input
+          type="checkbox"
+          checked={isSelected}
+          onChange={() => onToggleSelect?.(repair)}
+          className="absolute right-3 top-3 h-4.5 w-4.5 rounded border-slate-300 accent-blue-700"
+        />
+      )}
+
       <div className="flex items-center gap-3">
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-blue-100">
           <span className="material-symbols-outlined text-xl text-blue-800">
@@ -60,6 +80,15 @@ function RepairCard({ repair, onView, onApprove, onReject, onManage, onReview, o
             {repair.description || '-'}
           </span>
         </p>
+
+        {repair.appointmentDateLabel && (
+          <p className="text-slate-500">
+            นัดหมาย:{' '}
+            <strong className="text-blue-800">
+              {repair.appointmentDateLabel}
+            </strong>
+          </p>
+        )}
       </div>
 
       <div className="mt-auto">

@@ -8,6 +8,8 @@ const dateUtils = require('./libs/date_utils');
 const repair_request = require('./models/repair_request');
 const progress_status = require('./models/progress_status');
 const technician = require('./models/technician');
+const repair_timeline = require('./models/repair_timeline');
+const db_pool = require('./libs/db_pool');
 
 const app = express();   
 app.use(bp.urlencoded({ extended: true}));
@@ -138,6 +140,25 @@ app.get("/api/repair_request/get_summary", checkAccessToken, async (req, res) =>
 app.get("/api/repair_request/get_by_id/:request_id", checkAccessToken, async (req, res) => {
     const requestId = req.params.request_id;
     const response = await repair_request.getRepairRequestById(requestId);
+
+    if (!response.isError && response.data && req.decoded.role_id === 2 && response.data.progress_status_id === 1) {
+        const conn = await db_pool.getConnection();
+        try {
+            const alreadyReviewing = await repair_timeline.hasStep(conn, requestId, 'reviewing');
+            if (!alreadyReviewing) {
+                await repair_timeline.insertTimelineStep(conn, requestId, 'reviewing', null);
+            }
+        } finally {
+            conn.release();
+        }
+    }
+
+    res.json(response);
+});
+
+app.get("/api/repair_request/get_timeline/:request_id", checkAccessToken, async (req, res) => {
+    const requestId = req.params.request_id;
+    const response = await repair_timeline.getTimelineByRequestId(requestId);
     res.json(response);
 });
 
@@ -182,8 +203,24 @@ app.post("/api/repair_request/reject", checkAccessToken, async (req, res) => {
 app.post("/api/repair_request/assign_technician", checkAccessToken, async (req, res) => {
     const requestId = req.body.request_id;
     const technicianId = req.body.technician_id;
+    const appointmentDate = req.body.appointment_date;
+    const notes = req.body.notes;
 
-    const response = await repair_request.assignTechnician(requestId, technicianId);
+    const response = await repair_request.assignTechnician(requestId, technicianId, appointmentDate, notes);
+    res.json(response);
+});
+
+app.post("/api/repair_request/complete", checkAccessToken, async (req, res) => {
+    const requestId = req.body.request_id;
+
+    const response = await repair_request.completeRepairRequest(requestId);
+    res.json(response);
+});
+
+app.post("/api/repair_request/cancel_appointment", checkAccessToken, async (req, res) => {
+    const requestId = req.body.request_id;
+
+    const response = await repair_request.cancelAppointment(requestId);
     res.json(response);
 });
 
@@ -193,11 +230,11 @@ app.get("/api/technician/get_all", checkAccessToken, async (req, res) => {
 });
 
 app.post("/api/repair_request/delete", checkAccessToken, async (req, res) => {
-    const requestId = req.body.requestId
+    const requestIds = req.body.request_ids ?? req.body.requestId;
 
-    const response = await repair_request.deleteRepairRequest(requestId);
+    const response = await repair_request.deleteRepairRequest(requestIds);
     res.json(response);
-}); 
+});
 
 
 app.listen(port, () => {

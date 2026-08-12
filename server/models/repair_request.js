@@ -1,4 +1,5 @@
 const pool = require('../libs/db_pool');
+const repairTimeline = require('./repair_timeline');
 
 module.exports = {
     getAllRepairRequest : async () => {
@@ -19,6 +20,7 @@ module.exports = {
           "  ps.progress_status_name, " +
           "  rr.technician_id, " +
           "  CONCAT(tp.firstname, ' ', tp.lastname) AS technician_name, " +
+          "  DATE_FORMAT(rr.appointment_date, '%Y-%m-%d %H:%i:%s') AS appointment_date, " +
           "  DATE_FORMAT(rr.report_date, '%Y-%m-%d %H:%i:%s') AS report_date " +
           "FROM repair_request rr " +
           "LEFT JOIN repair_request_detail rrd ON rr.request_id = rrd.request_id " +
@@ -37,6 +39,7 @@ module.exports = {
           "  rr.technician_id, " +
           "  tp.firstname, " +
           "  tp.lastname, " +
+          "  rr.appointment_date, " +
           "  rr.report_date " +
           "ORDER BY rr.report_date DESC";
 
@@ -113,6 +116,9 @@ module.exports = {
           "  ps.progress_status_name, " +
           "  rr.technician_id, " +
           "  CONCAT(tp.firstname, ' ', tp.lastname) AS technician_name, " +
+          "  tp.phone AS technician_phone, " +
+          "  DATE_FORMAT(rr.appointment_date, '%Y-%m-%d %H:%i:%s') AS appointment_date, " +
+          "  DATE_FORMAT(rr.finish_date, '%Y-%m-%d %H:%i:%s') AS finish_date, " +
           "  DATE_FORMAT(rr.report_date, '%Y-%m-%d %H:%i:%s') AS report_date " +
           "FROM repair_request rr " +
           "LEFT JOIN repair_request_detail rrd ON rr.request_id = rrd.request_id " +
@@ -134,6 +140,9 @@ module.exports = {
           "  rr.technician_id, " +
           "  tp.firstname, " +
           "  tp.lastname, " +
+          "  tp.phone, " +
+          "  rr.appointment_date, " +
+          "  rr.finish_date, " +
           "  rr.report_date";
 
             var rows = await conn.query(sql, [requestId]);
@@ -305,6 +314,8 @@ module.exports = {
                 ]
             );
 
+            await repairTimeline.insertTimelineStep(conn, requestId, 'submitted', null);
+
             for (const repairTypeId of repairTypeIds) {
                 var detailSql =
                     "INSERT INTO repair_request_detail ("
@@ -357,6 +368,7 @@ module.exports = {
 
         try {
             conn = await pool.getConnection();
+            await conn.beginTransaction();
 
             var sql =
                 "UPDATE repair_request rr " +
@@ -367,12 +379,20 @@ module.exports = {
 
             await conn.query(sql, [accountId, requestId]);
 
+            await repairTimeline.insertTimelineStep(conn, requestId, 'approved', null);
+
+            await conn.commit();
+
             result = {
                 isError: false,
                 data: "",
                 errorMessage: ""
             };
         } catch (error) {
+            if (conn) {
+                await conn.rollback();
+            }
+
             result = {
                 isError: true,
                 data: "",
@@ -417,6 +437,8 @@ module.exports = {
 
             await conn.query(updateSql, [requestId]);
 
+            await repairTimeline.insertTimelineStep(conn, requestId, 'cancelled', reason);
+
             await conn.commit();
 
             result = {
@@ -442,16 +464,21 @@ module.exports = {
         }
     },
 
-    assignTechnician: async (requestId, technicianId) => {
+    assignTechnician: async (requestId, technicianId, appointmentDate, notes) => {
         let conn;
         let result;
 
         try {
             conn = await pool.getConnection();
+            await conn.beginTransaction();
 
-            var sql = "UPDATE repair_request SET technician_id = ? WHERE request_id = ?";
+            var sql = "UPDATE repair_request SET technician_id = ?, appointment_date = ? WHERE request_id = ?";
 
-            await conn.query(sql, [technicianId, requestId]);
+            await conn.query(sql, [technicianId, appointmentDate ?? null, requestId]);
+
+            await repairTimeline.insertTimelineStep(conn, requestId, 'appointment', notes);
+
+            await conn.commit();
 
             result = {
                 isError: false,
@@ -459,6 +486,10 @@ module.exports = {
                 errorMessage: ""
             };
         } catch (error) {
+            if (conn) {
+                await conn.rollback();
+            }
+
             result = {
                 isError: true,
                 data: "",
@@ -472,16 +503,100 @@ module.exports = {
         }
     },
 
-    deleteRepairStatus: async (requestId) => {
+    cancelAppointment: async (requestId) => {
+        let conn;
+        let result;
+
+        try {
+            conn = await pool.getConnection();
+            await conn.beginTransaction();
+
+            var sql = "UPDATE repair_request SET technician_id = NULL, appointment_date = NULL WHERE request_id = ?";
+
+            await conn.query(sql, [requestId]);
+
+            await repairTimeline.insertTimelineStep(conn, requestId, 'appointment_cancelled', null);
+
+            await conn.commit();
+
+            result = {
+                isError: false,
+                data: "",
+                errorMessage: ""
+            };
+        } catch (error) {
+            if (conn) {
+                await conn.rollback();
+            }
+
+            result = {
+                isError: true,
+                data: "",
+                errorMessage: error.message
+            }
+        } finally {
+            if (conn)
+                conn.release();
+
+            return result;
+        }
+    },
+
+    completeRepairRequest: async (requestId) => {
+        let conn;
+        let result;
+
+        try {
+            conn = await pool.getConnection();
+            await conn.beginTransaction();
+
+            var sql =
+                "UPDATE repair_request " +
+                "SET progress_status_id = 3, finish_date = NOW() " +
+                "WHERE request_id = ?";
+
+            await conn.query(sql, [requestId]);
+
+            await repairTimeline.insertTimelineStep(conn, requestId, 'completed', null);
+
+            await conn.commit();
+
+            result = {
+                isError: false,
+                data: "",
+                errorMessage: ""
+            };
+        } catch (error) {
+            if (conn) {
+                await conn.rollback();
+            }
+
+            result = {
+                isError: true,
+                data: "",
+                errorMessage: error.message
+            }
+        } finally {
+            if (conn)
+                conn.release();
+
+            return result;
+        }
+    },
+
+    deleteRepairRequest: async (requestIds) => {
         let conn;
         let result;
 
         try {
             conn = await pool.getConnection();
 
-            var sql = "DELETE FROM repair_request WHERE request_id = ?";
+            const ids = Array.isArray(requestIds) ? requestIds : [requestIds];
+            const placeholders = ids.map(() => '?').join(', ');
 
-            await conn.query(sql, [requestId]);
+            var sql = `DELETE FROM repair_request WHERE request_id IN (${placeholders})`;
+
+            await conn.query(sql, ids);
 
             result = {
                 isError: false,
