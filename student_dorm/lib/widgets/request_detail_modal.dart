@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:student_dorm/color/colors.dart';
-import 'package:student_dorm/widgets/repair_timeline.dart' show RepairDetail, formatDateShort, kRadiusLg;
+import 'package:student_dorm/models/repair_detail_model.dart' show RepairDetail;
+import 'package:student_dorm/widgets/repair_timeline.dart' show formatDateShort, kRadiusLg;
 
 /// เปิด modal "รายละเอียดคำร้องแจ้งซ่อม" แบบ bottom sheet
 /// ข้อมูลที่แสดงทั้งหมดมาจาก [detail] ที่ดึงจาก backend (get_by_id) อยู่แล้ว ไม่มีการ mock ข้อมูลเพิ่ม

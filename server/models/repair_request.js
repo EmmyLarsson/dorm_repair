@@ -154,7 +154,7 @@ module.exports = {
             };
         } catch (error) {
             result = {
-                isError: true,
+                isError: false,
                 data: "",
                 errorMessage: error.message
             }

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:google_fonts/google_fonts.dart';
 import 'package:student_dorm/color/colors.dart';
+import 'package:student_dorm/models/repair_detail_model.dart';
 import 'package:student_dorm/utils/app_api.dart';
 import 'package:student_dorm/widgets/repair_stepper.dart';
 import 'package:student_dorm/widgets/repair_timeline.dart';
