@@ -141,7 +141,7 @@ app.get("/api/repair_request/get_by_id/:request_id", checkAccessToken, async (re
     const requestId = req.params.request_id;
     const response = await repair_request.getRepairRequestById(requestId);
 
-    if (!response.isError && response.data && req.decoded.role_id === 2 && response.data.progress_status_id === 1) {
+    if (!response.isError && response.data && response.data.progress_status_id === 1 && await userAccountModel.isModerator(req.decoded.user_id)) {
         const conn = await db_pool.getConnection();
         try {
             const alreadyReviewing = await repair_timeline.hasStep(conn, requestId, 'reviewing');

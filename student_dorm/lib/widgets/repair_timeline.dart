@@ -562,69 +562,101 @@ class AppointmentCard extends StatelessWidget {
   }
 }
 
-/// การ์ด "ส่งคำร้องแจ้งซ่อมสำเร็จ" — static card ธรรมดา (ไม่มี popup รายละเอียดคำร้องแล้ว)
+/// การ์ด "ส่งคำร้องแจ้งซ่อมสำเร็จ" — กดเพื่อเปิด popup "ดูรายละเอียดคำร้อง" (ตรงกับ
+/// .tl-card--clickable + .tl-view-more ใน case_status.html)
 class RequestSubmittedCard extends StatelessWidget {
   final String date;
   final String description;
   final List<String> typeNames;
+  final VoidCallback onViewDetail;
 
-  const RequestSubmittedCard({super.key, required this.date, required this.description, required this.typeNames});
+  const RequestSubmittedCard({
+    super.key,
+    required this.date,
+    required this.description,
+    required this.typeNames,
+    required this.onViewDetail,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(kRadiusLg),
+      child: InkWell(
         borderRadius: BorderRadius.circular(kRadiusLg),
-        border: Border.all(color: kGray200, width: 1.5),
-        boxShadow: const [BoxShadow(color: Color(0x0F000000), blurRadius: 14, offset: Offset(0, 2))],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Container(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
-            decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: kGray200))),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Expanded(
-                  child: Text('ส่งคำร้องแจ้งซ่อมสำเร็จ', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: kText)),
-                ),
-                Padding(
-                  padding: const EdgeInsets.only(top: 2),
-                  child: Text(date, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: kTextMuted)),
-                ),
-              ],
-            ),
+        onTap: onViewDetail,
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(kRadiusLg),
+            border: Border.all(color: kGray200, width: 1.5),
+            boxShadow: const [BoxShadow(color: Color(0x0F000000), blurRadius: 14, offset: Offset(0, 2))],
           ),
-          Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'ผู้แจ้งได้ยื่นคำร้องแจ้งซ่อมเรียบร้อยแล้ว รายละเอียดดังนี้',
-                  style: TextStyle(fontSize: 13, height: 1.65, color: kTextMuted),
-                ),
-                if (description.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Text(description, style: const TextStyle(fontSize: 13, height: 1.65, color: kText)),
-                ],
-                if (typeNames.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 10),
-                    child: Wrap(
-                      spacing: 7,
-                      runSpacing: 7,
-                      children: typeNames.map((t) => _RepairTag(icon: Icons.bolt, label: t)).toList(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+                decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: kGray200))),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Expanded(
+                      child: Text('ส่งคำร้องแจ้งซ่อมสำเร็จ', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: kText)),
                     ),
-                  ),
-              ],
-            ),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(date, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: kTextMuted)),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'ผู้แจ้งได้ยื่นคำร้องแจ้งซ่อมเรียบร้อยแล้ว รายละเอียดดังนี้',
+                      style: TextStyle(fontSize: 13, height: 1.65, color: kTextMuted),
+                    ),
+                    if (description.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(description, style: const TextStyle(fontSize: 13, height: 1.65, color: kText)),
+                    ],
+                    if (typeNames.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 10),
+                        child: Wrap(
+                          spacing: 7,
+                          runSpacing: 7,
+                          children: typeNames.map((t) => _RepairTag(icon: Icons.bolt, label: t)).toList(),
+                        ),
+                      ),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: Container(
+                        padding: const EdgeInsets.only(top: 10),
+                        decoration: const BoxDecoration(border: Border(top: BorderSide(color: kGray200))),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.visibility, size: 15, color: kBlueDark),
+                            const SizedBox(width: 6),
+                            const Text(
+                              'ดูรายละเอียดคำร้อง',
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: kBlueDark),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

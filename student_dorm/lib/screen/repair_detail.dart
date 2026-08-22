@@ -8,6 +8,7 @@ import 'package:student_dorm/color/colors.dart';
 import 'package:student_dorm/utils/app_api.dart';
 import 'package:student_dorm/widgets/repair_stepper.dart';
 import 'package:student_dorm/widgets/repair_timeline.dart';
+import 'package:student_dorm/widgets/request_detail_modal.dart';
 
 /* ══════════════════════════════════════════
    SCREEN
@@ -292,6 +293,7 @@ class _CaseStatusScreenState extends State<CaseStatusScreen> {
           date: formatDateShort(step.eventDate),
           description: detail.description,
           typeNames: detail.typeNames,
+          onViewDetail: () => showRequestDetailModal(context, detail),
         );
       case 'appointment':
         return AppointmentCard(

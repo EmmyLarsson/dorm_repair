@@ -99,9 +99,30 @@ module.exports = {
                 errorMessage: error.message
             };
         } finally {
-            if (conn) 
+            if (conn)
                 conn.release();
         }
         return result;
+    },
+    isModerator: async (accountId) => {
+        let conn;
+
+        try {
+            conn = await pool.getConnection();
+
+            var sql = "SELECT 1 " +
+                      "FROM account a " +
+                      "JOIN moderator m ON m.person_id = a.person_id " +
+                      "WHERE a.account_id = ?";
+
+            var rows = await conn.query(sql, [accountId]);
+
+            return rows.length > 0;
+        } catch (error) {
+            return false;
+        } finally {
+            if (conn)
+                conn.release();
+        }
     },
 }
