@@ -131,6 +131,7 @@ export async function accessRequest(username, password, authenToken)
     body: JSON.stringify({
       authen_signature: authenSignature,
       authen_token: authenToken,
+      expected_role_id: 2,
     }),
   });
 

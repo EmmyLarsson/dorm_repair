@@ -7,9 +7,10 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:student_dorm/color/colors.dart';
 import 'package:student_dorm/models/repair_detail_model.dart';
 import 'package:student_dorm/utils/app_api.dart';
-import 'package:student_dorm/widgets/repair_stepper.dart';
-import 'package:student_dorm/widgets/repair_timeline.dart';
-import 'package:student_dorm/widgets/request_detail_modal.dart';
+import 'package:student_dorm/widgets/repair_detail/repair_stepper.dart';
+import 'package:student_dorm/widgets/repair_detail/repair_timeline.dart';
+import 'package:student_dorm/widgets/repair_detail/request_detail_modal.dart';
+import 'package:student_dorm/screen/report_submit_screen.dart';
 
 /* ══════════════════════════════════════════
    SCREEN
@@ -92,6 +93,15 @@ class _CaseStatusScreenState extends State<CaseStatusScreen> {
         _errorMessage = 'ไม่สามารถโหลดข้อมูลได้';
       });
     }
+  }
+
+  Future<void> _onEditPressed(int requestId) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => ReportSubmitScreen(requestId: requestId)),
+    );
+
+    if (!mounted) return;
+    _fetchData();
   }
 
   Future<void> _copyPhoneNumber(String phone) async {
@@ -294,7 +304,12 @@ class _CaseStatusScreenState extends State<CaseStatusScreen> {
           date: formatDateShort(step.eventDate),
           description: detail.description,
           typeNames: detail.typeNames,
-          onViewDetail: () => showRequestDetailModal(context, detail),
+          onViewDetail: () => showRequestDetailModal(
+            context,
+            detail,
+            requestId: widget.requestId,
+            onEditPressed: _onEditPressed,
+          ),
         );
       case 'appointment':
         return AppointmentCard(

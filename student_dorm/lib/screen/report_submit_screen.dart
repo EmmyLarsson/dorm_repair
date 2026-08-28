@@ -7,26 +7,24 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:student_dorm/utils/app_api.dart';
 import 'package:student_dorm/color/colors.dart';
-import 'package:student_dorm/widgets/problem_report_card.dart';
-import 'package:student_dorm/widgets/personal_info_form.dart';
-import 'package:student_dorm/widgets/work_type_chip.dart';
-import 'package:student_dorm/widgets/image_preview_grid.dart';
+import 'package:student_dorm/models/repair_detail_model.dart';
+import 'package:student_dorm/widgets/report_submit/problem_report_card.dart';
+import 'package:student_dorm/widgets/report_submit/personal_info_form.dart';
+import 'package:student_dorm/widgets/report_submit/work_type_chip.dart';
+import 'package:student_dorm/widgets/report_submit/image_preview_grid.dart';
 
 class ReportSubmitScreen extends StatefulWidget {
-  const ReportSubmitScreen({super.key});
+  const ReportSubmitScreen({super.key, this.requestId = 0});
+
+  final int requestId;
 
   @override
   State<ReportSubmitScreen> createState() => _ReportSubmitScreenState();
 }
 
 class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
-  final Map<String, String> _mockProfile = const {
-    'name': 'สมหญิง หญิงสม',
-    'phone': '080-123-4567',
-    'room': '110912',
-  };
-
   final TextEditingController nameController = TextEditingController();
+  final TextEditingController lastNameController = TextEditingController();
   final TextEditingController phoneController = TextEditingController();
   final TextEditingController roomNumberController = TextEditingController();
   final TextEditingController descriptionController = TextEditingController();
@@ -35,11 +33,13 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
   bool _isSubmitting = false;
 
   String _infoMode = 'new'; // 'new' | 'saved'
+  String _titleText = 'แจ้งซ่อม';
 
   final List<File> _uploadedImages = [];
 
   // ── Validation error flags ──
   bool _errName = false;
+  bool _errLastName = false;
   bool _errPhone = false;
   bool _errRoom = false;
   bool _errWorkType = false;
@@ -51,8 +51,63 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
   final ImagePicker _picker = ImagePicker();
 
   @override
+  void initState() {
+    super.initState();
+    _initData();
+  }
+
+  // ══════════════════════════════════════════
+  // Init (โหมดแก้ไข: โหลดคำร้องเดิมจาก backend มาเติมในฟอร์ม)
+  // ══════════════════════════════════════════
+  Future<RepairDetail?> _getRepairRequestModel(int requestId) async {
+    final response = await AppAPI.get('/repair_request/get_by_id/$requestId');
+    final Map<String, dynamic> json = jsonDecode(response.body);
+
+    if (json['isError'] == true || json['data'] == null) {
+      return null;
+    }
+
+    return RepairDetail.fromJson(json['data'] as Map<String, dynamic>);
+  }
+
+  Future<void> _initData() async {
+    if (widget.requestId == 0) {
+      setState(() {
+        _titleText = 'แจ้งซ่อม';
+      });
+      return;
+    }
+
+    setState(() {
+      _titleText = 'แก้ไขข้อมูลแจ้งซ่อม';
+    });
+
+    final detail = await _getRepairRequestModel(widget.requestId);
+    if (!mounted || detail == null) return;
+
+    final nameParts = detail.studentName.trim().split(' ');
+
+    setState(() {
+      nameController.text = nameParts.first;
+      lastNameController.text = nameParts.length > 1 ? nameParts.sublist(1).join(' ') : '';
+      phoneController.text = detail.contactPhone;
+      roomNumberController.text = detail.roomNumber;
+      descriptionController.text = detail.description;
+      _permission = detail.allowEntry ? 'yes' : 'no';
+      selectedRepairTypeIds
+        ..clear()
+        ..addAll(
+          kWorkTypes
+              .where((workType) => detail.typeNames.contains(workType.label))
+              .map((workType) => int.parse(workType.id)),
+        );
+    });
+  }
+
+  @override
   void dispose() {
     nameController.dispose();
+    lastNameController.dispose();
     phoneController.dispose();
     roomNumberController.dispose();
     descriptionController.dispose();
@@ -62,24 +117,50 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
   // ══════════════════════════════════════════
   // Info Mode Toggle (ข้อมูลใหม่ / ข้อมูลเดิม)
   // ══════════════════════════════════════════
-  void _applyInfoMode(String mode) {
-    setState(() {
-      final prevMode = _infoMode;
-      _infoMode = mode;
+  Future<Map<String, dynamic>?> _getStudentProfile() async {
+    final response = await AppAPI.get('/profile/me');
+    final Map<String, dynamic> json = jsonDecode(response.body);
 
-      if (mode == 'saved') {
-        nameController.text = _mockProfile['name'] ?? '';
-        phoneController.text = _mockProfile['phone'] ?? '';
-        roomNumberController.text = _mockProfile['room'] ?? '';
-      } else if (prevMode == 'saved') {
+    if (json['isError'] == true || json['data'] == null) {
+      return null;
+    }
+
+    return json['data'] as Map<String, dynamic>;
+  }
+
+  Future<void> _applyInfoMode(String mode) async {
+    final prevMode = _infoMode;
+
+    setState(() {
+      _infoMode = mode;
+    });
+
+    if (mode == 'saved') {
+      final profile = await _getStudentProfile();
+      if (!mounted) return;
+
+      setState(() {
+        nameController.text = profile?['firstname'] as String? ?? '';
+        lastNameController.text = profile?['lastname'] as String? ?? '';
+        phoneController.text = profile?['phone'] as String? ?? '';
+        roomNumberController.text = profile?['room_number'] as String? ?? '';
+        _errName = false;
+        _errLastName = false;
+        _errPhone = false;
+        _errRoom = false;
+      });
+    } else if (prevMode == 'saved') {
+      setState(() {
         nameController.clear();
+        lastNameController.clear();
         phoneController.clear();
         roomNumberController.clear();
-      }
-      _errName = false;
-      _errPhone = false;
-      _errRoom = false;
-    });
+        _errName = false;
+        _errLastName = false;
+        _errPhone = false;
+        _errRoom = false;
+      });
+    }
   }
 
   // ══════════════════════════════════════════
@@ -167,17 +248,20 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
   bool _validateForm() {
     setState(() {
       _errName = nameController.text.trim().isEmpty;
+      _errLastName = lastNameController.text.trim().isEmpty;
       _errPhone = phoneController.text.trim().isEmpty;
       _errRoom = roomNumberController.text.trim().isEmpty;
       _errWorkType = selectedRepairTypeIds.isEmpty;
       _errDesc = descriptionController.text.trim().isEmpty;
     });
-    return !(_errName || _errPhone || _errRoom || _errWorkType || _errDesc);
+    return !(_errName || _errLastName || _errPhone || _errRoom || _errWorkType || _errDesc);
   }
+
+  String get _fullName => '${nameController.text.trim()} ${lastNameController.text.trim()}'.trim();
 
   Future<(bool, String, String)> _doCreateRepairRequest() async {
     Map<String, dynamic> postData = {
-      "name": nameController.text.trim(),
+      "name": _fullName,
       "phone": phoneController.text.trim(),
       "room_number": roomNumberController.text.trim(),
       "repair_type_ids": selectedRepairTypeIds,
@@ -198,9 +282,47 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
     return (isError, errorMessage, caseCode);
   }
 
+  Future<(bool, String)> _doUpdateRepairRequest() async {
+    Map<String, dynamic> postData = {
+      "request_id": widget.requestId,
+      "name": _fullName,
+      "phone": phoneController.text.trim(),
+      "room_number": roomNumberController.text.trim(),
+      "repair_type_ids": selectedRepairTypeIds,
+      "description": descriptionController.text.trim(),
+      "allow_entry": _permission == 'yes',
+    };
+
+    final response = await AppAPI.post("/repair_request/update", postData);
+    final Map<String, dynamic> json = jsonDecode(response.body);
+    final bool isError = json["isError"];
+    final String errorMessage = json["errorMessage"] ?? "";
+
+    return (isError, errorMessage);
+  }
+
   Future<void> _handleSubmit() async {
     if (!_validateForm()) {
       _showToast('กรุณากรอกข้อมูลให้ครบถ้วน', isWarn: true);
+      return;
+    }
+
+    if (widget.requestId != 0) {
+      var (isError, errorMessage) = await _doUpdateRepairRequest();
+
+      if (!mounted) return;
+
+      if (isError) {
+        showDialog(
+          context: context,
+          builder: (context) {
+            return AlertDialog(content: Text(errorMessage));
+          },
+        );
+        return;
+      }
+
+      Navigator.pop(context);
       return;
     }
 
@@ -568,10 +690,12 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
                       children: [
                         PersonalInfoForm(
                           nameController: nameController,
+                          lastNameController: lastNameController,
                           phoneController: phoneController,
                           roomController: roomNumberController,
                           infoMode: _infoMode,
                           errorName: _errName,
+                          errorLastName: _errLastName,
                           errorPhone: _errPhone,
                           errorRoom: _errRoom,
                           onInfoModeChanged: _applyInfoMode,
@@ -579,6 +703,13 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
                             if (value.trim().isNotEmpty && _errName) {
                               setState(() {
                                 _errName = false;
+                              });
+                            }
+                          },
+                          onLastNameChanged: (value) {
+                            if (value.trim().isNotEmpty && _errLastName) {
+                              setState(() {
+                                _errLastName = false;
                               });
                             }
                           },
@@ -683,7 +814,7 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'แจ้งซ่อม',
+                    _titleText,
                     style: GoogleFonts.sarabun(
                       fontSize: 20,
                       fontWeight: FontWeight.w800,

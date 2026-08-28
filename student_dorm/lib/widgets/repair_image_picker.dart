@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import 'package:student_dorm/widgets/image_preview_grid.dart';
+import 'package:student_dorm/widgets/report_submit/image_preview_grid.dart';
 
 const Color kRsGoldText = Color(0xFF705D00);
 const Color kRsAmber = Color(0xFFE65100);

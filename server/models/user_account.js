@@ -31,6 +31,39 @@ module.exports = {
             return result;
         }
     },
+    getStudentProfile: async (accountId) => {
+        let conn;
+        let result;
+
+        try {
+            conn = await pool.getConnection();
+
+            var sql = "SELECT a.username AS student_no, p.firstname, p.lastname, p.phone, s.room_number " +
+                      "FROM account a " +
+                      "INNER JOIN person p ON a.person_id = p.person_id " +
+                      "INNER JOIN student s ON s.person_id = p.person_id " +
+                      "WHERE a.account_id = ?";
+
+            var rows = await conn.query(sql, [accountId]);
+
+            result = {
+                isError: false,
+                data: rows[0] ?? null,
+                errorMessage: ""
+            };
+        } catch (error) {
+            result = {
+                isError: true,
+                data: "",
+                errorMessage: error.message
+            };
+        } finally {
+            if (conn)
+                conn.release();
+
+            return result;
+        }
+    },
     checkAuthenRequest: async (authenRequest) => {
         let conn;
         let result;
@@ -74,7 +107,7 @@ module.exports = {
         try {
             conn = await pool.getConnection();
 
-            var sql = "SELECT a.account_id, a.username, p.profile_image " +
+            var sql = "SELECT a.account_id, a.username, a.role_id, p.profile_image " +
                       "FROM account a " +
                       "INNER JOIN person p ON a.person_id = p.person_id " +
                       "WHERE SHA2(CONCAT(a.username, '&', a.password, '&', ?), 256) = ?";
@@ -103,6 +136,54 @@ module.exports = {
                 conn.release();
         }
         return result;
+    },
+    updateStudentProfile: async (accountId, phone, roomNumber) => {
+        let conn;
+        let result;
+
+        try {
+            conn = await pool.getConnection();
+            await conn.beginTransaction();
+
+            var updatePhoneSql =
+                "UPDATE person p " +
+                "JOIN account a ON a.person_id = p.person_id " +
+                "SET p.phone = ? " +
+                "WHERE a.account_id = ?";
+
+            await conn.query(updatePhoneSql, [phone, accountId]);
+
+            var updateRoomSql =
+                "UPDATE student s " +
+                "JOIN account a ON a.person_id = s.person_id " +
+                "SET s.room_number = ? " +
+                "WHERE a.account_id = ?";
+
+            await conn.query(updateRoomSql, [roomNumber, accountId]);
+
+            await conn.commit();
+
+            result = {
+                isError: false,
+                data: "",
+                errorMessage: ""
+            };
+        } catch (error) {
+            if (conn) {
+                await conn.rollback();
+            }
+
+            result = {
+                isError: true,
+                data: "",
+                errorMessage: error.message
+            };
+        } finally {
+            if (conn)
+                conn.release();
+
+            return result;
+        }
     },
     isModerator: async (accountId) => {
         let conn;

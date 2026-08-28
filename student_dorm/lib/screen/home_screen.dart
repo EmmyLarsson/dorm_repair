@@ -7,7 +7,7 @@ import 'dart:convert';
 import 'package:student_dorm/color/colors.dart';
 import 'package:student_dorm/utils/app_api.dart';
 import 'package:student_dorm/widgets/repair_info.dart';
-import 'package:student_dorm/widgets/status_card.dart';
+import 'package:student_dorm/widgets/home/status_card.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});

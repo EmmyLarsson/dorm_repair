@@ -6,30 +6,36 @@ class PersonalInfoForm extends StatelessWidget {
   const PersonalInfoForm({
     super.key,
     required this.nameController,
+    required this.lastNameController,
     required this.phoneController,
     required this.roomController,
     required this.infoMode,
     required this.errorName,
+    required this.errorLastName,
     required this.errorPhone,
     required this.errorRoom,
     required this.onInfoModeChanged,
     required this.onNameChanged,
+    required this.onLastNameChanged,
     required this.onPhoneChanged,
     required this.onRoomChanged,
   });
 
   final TextEditingController nameController;
+  final TextEditingController lastNameController;
   final TextEditingController phoneController;
   final TextEditingController roomController;
 
   final String infoMode;
 
   final bool errorName;
+  final bool errorLastName;
   final bool errorPhone;
   final bool errorRoom;
 
   final ValueChanged<String> onInfoModeChanged;
   final ValueChanged<String> onNameChanged;
+  final ValueChanged<String> onLastNameChanged;
   final ValueChanged<String> onPhoneChanged;
   final ValueChanged<String> onRoomChanged;
 
@@ -65,13 +71,25 @@ class PersonalInfoForm extends StatelessWidget {
 
           _fieldGroup(
             icon: Icons.badge_outlined,
-            label: 'ชื่อผู้แจ้ง',
+            label: 'ชื่อ',
             controller: nameController,
-            hint: 'ชื่อ-นามสกุล',
+            hint: 'ชื่อจริง',
             isError: errorName,
             errorText: 'กรุณากรอกชื่อผู้แจ้ง',
             readOnly: isSaved,
             onChanged: onNameChanged,
+          ),
+          const SizedBox(height: 14),
+
+          _fieldGroup(
+            icon: Icons.badge_outlined,
+            label: 'นามสกุล',
+            controller: lastNameController,
+            hint: 'นามสกุล',
+            isError: errorLastName,
+            errorText: 'กรุณากรอกนามสกุลผู้แจ้ง',
+            readOnly: isSaved,
+            onChanged: onLastNameChanged,
           ),
           const SizedBox(height: 14),
 

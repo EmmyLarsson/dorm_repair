@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:student_dorm/models/repair_request_model.dart';
 import 'package:student_dorm/color/colors.dart';
-import 'package:student_dorm/screen/repair_detail.dart';
+import 'package:student_dorm/screen/repair_detail_screen.dart';
 
 const kStatusBarColors = {
   'รอตรวจสอบ': kRsAmber,

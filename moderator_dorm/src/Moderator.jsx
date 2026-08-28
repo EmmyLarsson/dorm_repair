@@ -2,13 +2,14 @@ import { Navigate, Route, Routes } from "react-router-dom";
 
 import BrandPanel from "./layouts/BrandPanel";
 import MainLayout from "./layouts/MainLayout";
+import ProtectedRoute from "./layouts/ProtectedRoute";
 
 import LoginPage from "./pages/LoginPage";
 import HomePage from "./pages/HomePage";
 import RepairManagementPage from "./pages/RepairManagementPage";
+import PersonnelPage from "./pages/PersonnelPage";
 // import InventoryPage from "./pages/InventoryPage";
 // import ReportPage from "./pages/ReportPage";
-// import PersonnelPage from "./pages/PersonnelPage";
 
 export default function Moderator() {
   return (
@@ -17,33 +18,35 @@ export default function Moderator() {
         <Route path="/login" element={<LoginPage />} />
       </Route>
 
-      <Route element={<MainLayout />}>
-        <Route path="/moderator" element={<Navigate to="/moderator/home" replace/>}/>
+      <Route element={<ProtectedRoute allowedRoleIds={[2]} />}>
+        <Route element={<MainLayout />}>
+          <Route path="/moderator" element={<Navigate to="/moderator/home" replace/>}/>
 
-        <Route
-          path="/moderator/home"
-          element={<HomePage />}
-        />
+          <Route
+            path="/moderator/home"
+            element={<HomePage />}
+          />
 
-        <Route
-          path="/moderator/repairs"
-          element={<RepairManagementPage />}
-        />
+          <Route
+            path="/moderator/repairs"
+            element={<RepairManagementPage />}
+          />
 
-        {/* <Route
-          path="/moderator/inventory"
-          element={<InventoryPage />}
-        />
+          <Route
+            path="/moderator/personnel"
+            element={<PersonnelPage />}
+          />
 
-        <Route
-          path="/moderator/reports"
-          element={<ReportPage />}
-        />
+          {/* <Route
+            path="/moderator/inventory"
+            element={<InventoryPage />}
+          />
 
-        <Route
-          path="/moderator/personnel"
-          element={<PersonnelPage />}
-        /> */}
+          <Route
+            path="/moderator/reports"
+            element={<ReportPage />}
+          /> */}
+        </Route>
       </Route>
 
       {/* เปิดหน้าเว็บไซต์หลัก */}

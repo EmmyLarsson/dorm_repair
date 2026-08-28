@@ -1,24 +1,40 @@
 import 'package:flutter/material.dart';
 import 'package:student_dorm/color/colors.dart';
 import 'package:student_dorm/models/repair_detail_model.dart' show RepairDetail;
-import 'package:student_dorm/widgets/repair_timeline.dart' show formatDateShort, kRadiusLg;
+import 'package:student_dorm/widgets/repair_detail/repair_timeline.dart' show formatDateShort, kRadiusLg;
 
 /// เปิด modal "รายละเอียดคำร้องแจ้งซ่อม" แบบ bottom sheet
 /// ข้อมูลที่แสดงทั้งหมดมาจาก [detail] ที่ดึงจาก backend (get_by_id) อยู่แล้ว ไม่มีการ mock ข้อมูลเพิ่ม
-Future<void> showRequestDetailModal(BuildContext context, RepairDetail detail) {
+Future<void> showRequestDetailModal(
+  BuildContext context,
+  RepairDetail detail, {
+  required int requestId,
+  required void Function(int) onEditPressed,
+}) {
   return showModalBottomSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (_) => RequestDetailModal(detail: detail),
+    builder: (_) => RequestDetailModal(
+      detail: detail,
+      requestId: requestId,
+      onEditPressed: onEditPressed,
+    ),
   );
 }
 
 /// ตรงกับ #requestModalOverlay > .modal-sheet ใน case_status.html/css
 class RequestDetailModal extends StatelessWidget {
-  final RepairDetail detail;
+  const RequestDetailModal({
+    super.key,
+    required this.detail,
+    required this.requestId,
+    required this.onEditPressed,
+  });
 
-  const RequestDetailModal({super.key, required this.detail});
+  final RepairDetail detail;
+  final int requestId;
+  final void Function(int) onEditPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -160,6 +176,41 @@ class RequestDetailModal extends StatelessWidget {
               ],
             ),
           ),
+          Builder(builder: (context) {
+            final canEdit = detail.statusId == 1;
+            return Material(
+              color: canEdit ? kBlue.withValues(alpha: 0.12) : kGray100,
+              borderRadius: BorderRadius.circular(999),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(999),
+                onTap: canEdit
+                    ? () {
+                        Navigator.of(context).maybePop();
+                        onEditPressed(requestId);
+                      }
+                    : null,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.edit, size: 16, color: canEdit ? kBlueDark : kGray400),
+                      const SizedBox(width: 5),
+                      Text(
+                        'แก้ไข',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: canEdit ? kBlueDark : kGray400,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }),
+          const SizedBox(width: 8),
           Material(
             color: kGray100,
             shape: const CircleBorder(),

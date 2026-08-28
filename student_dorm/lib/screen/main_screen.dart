@@ -3,7 +3,7 @@ import 'package:student_dorm/color/colors.dart';
 import 'package:student_dorm/screen/history_screen.dart';
 import 'package:student_dorm/screen/home_screen.dart';
 import 'package:student_dorm/screen/profile_screen.dart';
-import 'package:student_dorm/widgets/bottom_nav.dart';
+import 'package:student_dorm/widgets/main/bottom_nav.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});

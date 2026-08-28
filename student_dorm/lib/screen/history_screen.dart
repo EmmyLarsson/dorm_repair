@@ -6,7 +6,7 @@ import 'package:student_dorm/color/colors.dart';
 import 'package:student_dorm/models/repair_request_model.dart';
 import 'package:student_dorm/utils/app_api.dart';
 import 'package:student_dorm/widgets/repair_info.dart';
-import 'package:student_dorm/widgets/sort_chip.dart';
+import 'package:student_dorm/widgets/history/sort_chip.dart';
 
 const Map<String, String> kSectionTitle = {
   'date': 'รายการทั้งหมด',

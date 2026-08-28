@@ -497,6 +497,7 @@ class _LoginScreenState extends State<LoginScreen> {
       body: jsonEncode(<String, String>{
         'authen_signature': authenSignature,
         'authen_token': authenToken,
+        'expected_role_id': '1',
       }),
     );
 

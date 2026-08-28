@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:student_dorm/color/colors.dart';
 import 'package:student_dorm/models/repair_detail_model.dart';
-import 'package:student_dorm/widgets/repair_timeline.dart';
+import 'package:student_dorm/widgets/repair_detail/repair_timeline.dart';
 
 /// .stepper — คำนวณ done/active/pending จาก progress_status_id จริงจาก backend
 class RepairStepper extends StatelessWidget {

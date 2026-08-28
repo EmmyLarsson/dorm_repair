@@ -9,6 +9,7 @@ const repair_request = require('./models/repair_request');
 const progress_status = require('./models/progress_status');
 const technician = require('./models/technician');
 const repair_timeline = require('./models/repair_timeline');
+const personnel = require('./models/personnel');
 const db_pool = require('./libs/db_pool');
 
 const app = express();   
@@ -41,6 +42,17 @@ const checkAccessToken = (req, res, next) => {
                 errorMessage: "ยังไม่ได้เข้าสู่ระบบ"
             });
         });
+}
+
+const requireRole = (allowedRoleIds) => (req, res, next) => {
+    if (!allowedRoleIds.includes(req.decoded?.role_id)) {
+        return res.json({
+            isError: true,
+            data: "",
+            errorMessage: "คุณไม่มีสิทธิ์เข้าถึงข้อมูลนี้"
+        });
+    }
+    next();
 }
 
 app.get("/api/users", (req, res) => {
@@ -82,6 +94,7 @@ app.post("/api/authen/authen_request", async (req, res) => {
 app.post("/api/authen/access_request", async (req, res) => {
     const authenSignature = req.body.authen_signature;
     const authenToken = req.body.authen_token;
+    const expectedRoleId = req.body.expected_role_id;
 
     var decoded = jwt.verify(authenToken);
 
@@ -93,6 +106,8 @@ app.post("/api/authen/access_request", async (req, res) => {
 
         if (result.isError) {
         response = { isError: true, data: "", errorMessage: result.errorMessage };
+        } else if (expectedRoleId !== undefined && expectedRoleId !== null && Number(expectedRoleId) !== Number(result.data[0].role_id)) {
+            response = { isError: true, data: "", errorMessage: "บัญชีนี้ไม่มีสิทธิ์เข้าใช้งานระบบนี้" };
         } else {
             var payload = {
                 user_id: result.data[0].account_id,
@@ -120,6 +135,21 @@ app.post("/api/authen/access_request", async (req, res) => {
         };
     }
     res.send(JSON.stringify(response));
+});
+
+app.get("/api/profile/me", checkAccessToken, async (req, res) => {
+    const accountId = req.decoded.user_id;
+    const response = await userAccountModel.getStudentProfile(accountId);
+    res.json(response);
+});
+
+app.post("/api/profile/update", checkAccessToken, async (req, res) => {
+    const accountId = req.decoded.user_id;
+    const phone = req.body.phone;
+    const roomNumber = req.body.room_number;
+
+    const response = await userAccountModel.updateStudentProfile(accountId, phone, roomNumber);
+    res.json(response);
 });
 
 app.get("/api/progress_status/get_all", checkAccessToken, async (req, res) => {
@@ -183,6 +213,20 @@ app.post("/api/repair_request/create", checkAccessToken, async (req, res) => {
     res.json(response);
 });
 
+app.post("/api/repair_request/update", checkAccessToken, async (req, res) => {
+    const requestId = req.body.request_id;
+    const studentId = req.decoded.user_id;
+    const name = req.body.name;
+    const phone = req.body.phone;
+    const roomNumber = req.body.room_number;
+    const repairTypeIds = req.body.repair_type_ids;
+    const description = req.body.description;
+    const allowEntry = req.body.allow_entry;
+
+    const response = await repair_request.updateRepairRequest(requestId, studentId, name, phone, roomNumber, repairTypeIds, description, allowEntry);
+    res.json(response);
+});
+
 app.post("/api/repair_request/approve", checkAccessToken, async (req, res) => {
     const requestId = req.body.request_id;
     const accountId = req.decoded.user_id;
@@ -233,6 +277,68 @@ app.post("/api/repair_request/delete", checkAccessToken, async (req, res) => {
     const requestIds = req.body.request_ids ?? req.body.requestId;
 
     const response = await repair_request.deleteRepairRequest(requestIds);
+    res.json(response);
+});
+
+app.get("/api/role/get_all", checkAccessToken, async (req, res) => {
+    const response = await personnel.getAllRoles();
+    res.json(response);
+});
+
+app.get("/api/position/get_all", checkAccessToken, async (req, res) => {
+    const response = await personnel.getAllPositions();
+    res.json(response);
+});
+
+app.get("/api/specialty/get_all", checkAccessToken, async (req, res) => {
+    const response = await personnel.getAllSpecialties();
+    res.json(response);
+});
+
+app.get("/api/personnel/get_all", checkAccessToken, requireRole([2]), async (req, res) => {
+    const response = await personnel.getAllPersonnel();
+    res.json(response);
+});
+
+app.post("/api/personnel/create_student", checkAccessToken, requireRole([2]), async (req, res) => {
+    const { firstname, lastname, phone, username, password, room_number } = req.body;
+    const response = await personnel.createStudent(firstname, lastname, phone, username, password, room_number);
+    res.json(response);
+});
+
+app.post("/api/personnel/create_moderator", checkAccessToken, requireRole([2]), async (req, res) => {
+    const { firstname, lastname, phone, username, password, position_id } = req.body;
+    const response = await personnel.createModerator(firstname, lastname, phone, username, password, position_id);
+    res.json(response);
+});
+
+app.post("/api/personnel/create_technician", checkAccessToken, requireRole([2]), async (req, res) => {
+    const { firstname, lastname, phone, specialty_id } = req.body;
+    const response = await personnel.createTechnician(firstname, lastname, phone, specialty_id);
+    res.json(response);
+});
+
+app.post("/api/personnel/update_student", checkAccessToken, requireRole([2]), async (req, res) => {
+    const { person_id, firstname, lastname, phone, room_number } = req.body;
+    const response = await personnel.updateStudent(person_id, firstname, lastname, phone, room_number);
+    res.json(response);
+});
+
+app.post("/api/personnel/update_moderator", checkAccessToken, requireRole([2]), async (req, res) => {
+    const { person_id, firstname, lastname, phone, position_id } = req.body;
+    const response = await personnel.updateModerator(person_id, firstname, lastname, phone, position_id);
+    res.json(response);
+});
+
+app.post("/api/personnel/update_technician", checkAccessToken, requireRole([2]), async (req, res) => {
+    const { person_id, firstname, lastname, phone, specialty_id } = req.body;
+    const response = await personnel.updateTechnician(person_id, firstname, lastname, phone, specialty_id);
+    res.json(response);
+});
+
+app.post("/api/personnel/delete", checkAccessToken, requireRole([2]), async (req, res) => {
+    const personIds = req.body.person_ids;
+    const response = await personnel.deletePersonnel(personIds);
     res.json(response);
 });
 

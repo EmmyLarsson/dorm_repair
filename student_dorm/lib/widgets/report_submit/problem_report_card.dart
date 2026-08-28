@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:student_dorm/color/colors.dart';
-import 'package:student_dorm/widgets/work_type_chip.dart';
+import 'package:student_dorm/widgets/report_submit/work_type_chip.dart';
 
 class ProblemReportCard extends StatelessWidget {
   const ProblemReportCard({

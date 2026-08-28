@@ -362,6 +362,71 @@ module.exports = {
         }
     },
 
+    updateRepairRequest: async (requestId, studentId, name, phone, roomNumber, repairTypeIds, description, allowEntry) => {
+        let conn;
+        let result;
+
+        try {
+            conn = await pool.getConnection();
+            await conn.beginTransaction();
+
+            var checkSql = "SELECT progress_status_id FROM repair_request WHERE request_id = ? AND student_id = ?";
+            var checkRows = await conn.query(checkSql, [requestId, studentId]);
+
+            if (!checkRows[0] || checkRows[0].progress_status_id !== 1) {
+                await conn.rollback();
+
+                result = {
+                    isError: true,
+                    data: "",
+                    errorMessage: "ไม่สามารถแก้ไขคำร้องที่ได้รับการอนุมัติแล้วได้"
+                };
+
+                return result;
+            }
+
+            var sql =
+                "UPDATE repair_request "
+                + "SET contact_name = ?, contact_phone = ?, target_room = ?, description = ?, allow_entry = ? "
+                + "WHERE request_id = ?;";
+
+            await conn.query(sql, [name, phone, roomNumber, description, allowEntry ? 1 : 0, requestId]);
+
+            await conn.query("DELETE FROM repair_request_detail WHERE request_id = ?", [requestId]);
+
+            for (const repairTypeId of repairTypeIds) {
+                await conn.query(
+                    "INSERT INTO repair_request_detail (request_id, repair_type_id) VALUES (?, ?);",
+                    [requestId, repairTypeId]
+                );
+            }
+
+            await conn.commit();
+
+            result = {
+                isError: false,
+                data: "",
+                errorMessage: ""
+            };
+        } catch (error) {
+            if (conn) {
+                await conn.rollback();
+            }
+
+            result = {
+                isError: true,
+                data: "",
+                errorMessage: error.message
+            };
+        } finally {
+            if (conn) {
+                conn.release();
+            }
+
+            return result;
+        }
+    },
+
     approveRepairRequest: async (requestId, accountId) => {
         let conn;
         let result;
