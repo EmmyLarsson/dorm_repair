@@ -1,9 +1,12 @@
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:student_dorm/widgets/report_submit/attached_photo_viewer.dart';
 
 /// Grid preview รูปที่อัพโหลดแล้ว พร้อมปุ่มลบ (ตาม .img-grid / .img-thumb)
+/// ใช้ XFile + readAsBytes() แทน dart:io File เพราะ File ใช้งานบนเว็บ (Chrome) ไม่ได้
 class ImagePreviewGrid extends StatelessWidget {
-  final List<File> images;
+  final List<XFile> images;
   final void Function(int index) onRemove;
 
   const ImagePreviewGrid({
@@ -38,7 +41,7 @@ class ImagePreviewGrid extends StatelessWidget {
 }
 
 class _ImageThumb extends StatelessWidget {
-  final File file;
+  final XFile file;
   final int index;
   final VoidCallback onRemove;
 
@@ -60,10 +63,41 @@ class _ImageThumb extends StatelessWidget {
       child: Stack(
         children: [
           Positioned.fill(
-            child: Image.file(
-              file,
-              fit: BoxFit.cover,
-              semanticLabel: 'รูปที่ ${index + 1}',
+            child: GestureDetector(
+              onTap: () => showAttachedPhotoViewer(
+                context,
+                image: FutureBuilder<Uint8List>(
+                  future: file.readAsBytes(),
+                  builder: (context, snapshot) {
+                    if (!snapshot.hasData) {
+                      return const Center(
+                        child: CircularProgressIndicator(color: Colors.white54),
+                      );
+                    }
+                    return Image.memory(snapshot.data!, fit: BoxFit.contain);
+                  },
+                ),
+                onDelete: onRemove,
+              ),
+              child: FutureBuilder<Uint8List>(
+                future: file.readAsBytes(),
+                builder: (context, snapshot) {
+                  if (!snapshot.hasData) {
+                    return const Center(
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    );
+                  }
+                  return Image.memory(
+                    snapshot.data!,
+                    fit: BoxFit.cover,
+                    semanticLabel: 'รูปที่ ${index + 1}',
+                  );
+                },
+              ),
             ),
           ),
           Positioned(

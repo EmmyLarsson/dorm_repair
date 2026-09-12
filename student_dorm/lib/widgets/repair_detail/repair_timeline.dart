@@ -24,12 +24,23 @@ String formatDateShort(String? raw) {
   return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/$y';
 }
 
-/// dd เดือน พ.ศ. (ใช้ในกล่องไฮไลต์วันนัดซ่อม)
+/// dd เดือน พ.ศ. เวลา HH:mm (ใช้ในกล่องไฮไลต์วันนัดซ่อม) — appointment_date เป็น datetime
+/// ที่เก็บเวลาไว้ในฐานข้อมูลอยู่แล้ว เดิมฟังก์ชันนี้ตัดเวลาทิ้งไปตั้งแต่แรกจึงไม่เคยแสดงเวลาเลย
 String formatDateFull(String? raw) {
   final dt = _tryParseSqlDate(raw);
   if (dt == null) return '—';
   final y = dt.year + 543;
-  return '${dt.day.toString().padLeft(2, '0')} ${_kThaiMonths[dt.month - 1]} $y';
+  final hour = dt.hour.toString().padLeft(2, '0');
+  final minute = dt.minute.toString().padLeft(2, '0');
+  return '${dt.day.toString().padLeft(2, '0')} ${_kThaiMonths[dt.month - 1]} $y  •  $hour:$minute น.';
+}
+
+/// เทียบแค่ปี/เดือน/วัน (ไม่เทียบเวลา) กับวันนี้ — คำนวณสดทุกครั้งที่ build ไม่มีการเก็บค่าไว้ที่ไหน
+bool _isAppointmentToday(String? raw) {
+  final dt = _tryParseSqlDate(raw);
+  if (dt == null) return false;
+  final now = DateTime.now();
+  return dt.year == now.year && dt.month == now.month && dt.day == now.day;
 }
 
 /* ══════════════════════════════════════════
@@ -67,6 +78,18 @@ StepVisual stepVisual(String stepCode) {
       return const StepVisual(Icons.cancel, kRsError, kRsError, 'คำร้องแจ้งซ่อมถูกยกเลิก', '');
     case 'appointment_cancelled':
       return const StepVisual(Icons.event_busy, kAmber, kAmberDark, 'ยกเลิกนัดหมาย', 'รอนัดหมายอีกครั้ง');
+    case 'accepted':
+      return const StepVisual(Icons.verified, Color(0xFF4ADE80), kGreenDark, 'นักศึกษายอมรับผลการซ่อม',
+          'นักศึกษาตรวจสอบผลการซ่อมแล้วยืนยันว่าเรียบร้อย ถือว่างานซ่อมนี้เสร็จสิ้นสมบูรณ์');
+    case 'complaint_filed':
+      return const StepVisual(Icons.report_problem, kAmber, kAmberDark, 'ยื่นคำร้องแจ้งแก้ไขงานซ่อม',
+          'นักศึกษาแจ้งว่ายังไม่พอใจผลการซ่อม รอเจ้าหน้าที่ตรวจสอบคำร้อง');
+    case 'complaint_approved':
+      return const StepVisual(Icons.build_circle, kBlue, kBlueDark, 'อนุมัติคำร้อง กำลังแก้ไขงานซ่อม',
+          'เจ้าหน้าที่รับทราบคำร้องและกำลังดำเนินการแก้ไขงานซ่อมให้ใหม่');
+    case 'complaint_rejected':
+      return const StepVisual(Icons.gpp_maybe, kRsError, kRsError, 'ปฏิเสธคำร้อง',
+          'เจ้าหน้าที่พิจารณาแล้วว่างานซ่อมเรียบร้อยดี ไม่มีการแก้ไขเพิ่มเติม');
     default:
       return const StepVisual(Icons.info, Color(0xFFCBD5E1), kSlateDark, '', '');
   }
@@ -319,6 +342,13 @@ class AppointmentCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasPhone = technicianPhone != null && technicianPhone!.isNotEmpty;
+    final isToday = _isAppointmentToday(appointmentDate);
+    // step_detail จาก backend ขึ้นต้นด้วย "เลื่อนกำหนดการซ่อมเป็น..." เฉพาะตอนเลื่อนนัดจากที่เคยมีอยู่แล้ว
+    // (ดู assignTechnician ใน server/models/repair_request.js) ใช้เช็คว่าควรโชว์หัวข้อไหน
+    final isReschedule = notes != null && notes!.startsWith('เลื่อน');
+    // notes ทั้งก้อนตอนนี้คือประโยคที่ backend แต่งไว้ (วันที่+ช่วงเวลาซ้ำกับกล่องด้านบนแล้ว) —
+    // แกะเอาแค่หมายเหตุจริงที่เจ้าหน้าที่พิมพ์เอง (อยู่ในวงเล็บท้ายสุด) มาโชว์แทนทั้งประโยค
+    final userNote = notes != null ? RegExp(r'\(([^)]*)\)$').firstMatch(notes!)?.group(1) : null;
 
     return Container(
       decoration: BoxDecoration(
@@ -353,9 +383,9 @@ class AppointmentCard extends StatelessWidget {
                         ),
                         child: Text('ล่าสุด', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: kBlueDark)),
                       ),
-                      const Text(
-                        'ได้รับวันนัดหมายการซ่อม',
-                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: kText),
+                      Text(
+                        isReschedule ? 'เลื่อนกำหนดการนัดหมาย' : 'ได้รับวันนัดหมายการซ่อม',
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: kText),
                       ),
                     ],
                   ),
@@ -372,6 +402,28 @@ class AppointmentCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                if (isToday)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    margin: const EdgeInsets.only(bottom: 10),
+                    decoration: BoxDecoration(
+                      color: kAmber.withValues(alpha: 0.18),
+                      border: Border.all(color: kAmber),
+                      borderRadius: BorderRadius.circular(kRadiusMd),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.notifications_active, size: 18, color: kAmberDark),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Text(
+                            'วันนี้ถึงกำหนดนัดหมายซ่อมแล้ว!',
+                            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800, color: kText),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   margin: const EdgeInsets.only(bottom: 14),
@@ -395,8 +447,8 @@ class AppointmentCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (notes != null && notes!.isNotEmpty) ...[
-                  Text(notes!, style: const TextStyle(fontSize: 12.5, color: kTextMuted, height: 1.5)),
+                if (userNote != null && userNote.isNotEmpty) ...[
+                  Text(userNote, style: const TextStyle(fontSize: 12.5, color: kTextMuted, height: 1.5)),
                   const SizedBox(height: 12),
                 ],
                 Container(height: 1, color: kGray200, margin: const EdgeInsets.symmetric(vertical: 12)),

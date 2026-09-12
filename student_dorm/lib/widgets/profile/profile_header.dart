@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:student_dorm/color/colors.dart';
+import 'package:student_dorm/screen/photo_viewer_screen.dart' show photoFullUrl;
 
 /// ส่วนหัวหน้าโปรไฟล์: รูปวงกลม + ชื่อ-นามสกุล + รหัสนักศึกษา + หมายเลขห้องพัก
 /// (สไตล์อ้างอิงจาก Prototype/Student/profile.css .profile-header)
@@ -10,11 +11,13 @@ class ProfileHeader extends StatelessWidget {
     required this.fullName,
     required this.studentNo,
     required this.roomNumber,
+    this.imageUrl,
   });
 
   final String fullName;
   final String studentNo;
   final String roomNumber;
+  final String? imageUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -100,13 +103,21 @@ class ProfileHeader extends StatelessWidget {
                 ),
               ],
             ),
-            child: Container(
-              decoration: const BoxDecoration(
+            child: ClipOval(
+              child: Container(
                 color: kNavyLight,
-                shape: BoxShape.circle,
+                alignment: Alignment.center,
+                child: (imageUrl == null || imageUrl!.isEmpty)
+                    ? const Icon(Icons.person, size: 52, color: kNavyMid)
+                    : Image.network(
+                        photoFullUrl(imageUrl!),
+                        width: 100,
+                        height: 100,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) =>
+                            const Icon(Icons.person, size: 52, color: kNavyMid),
+                      ),
               ),
-              alignment: Alignment.center,
-              child: const Icon(Icons.person, size: 52, color: kNavyMid),
             ),
           ),
           Positioned(

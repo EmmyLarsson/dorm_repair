@@ -10,6 +10,35 @@ async function isUsernameTaken(conn, username) {
     return rows.length > 0;
 }
 
+// ใช้ตอนแก้ไขบัญชีเดิม — ต้องเช็คว่า username ซ้ำกับ "คนอื่น" ไหม ไม่ใช่ซ้ำกับบัญชีของตัวเองที่ไม่ได้เปลี่ยน
+async function isUsernameTakenByOther(conn, username, personId) {
+    var rows = await conn.query(
+        "SELECT 1 FROM account WHERE username = ? AND person_id != ?",
+        [username, personId]
+    );
+    return rows.length > 0;
+}
+
+// ใช้ร่วมกันระหว่าง updateStudent/updateModerator — username/password ไม่บังคับ ใส่มาก็ต่อเมื่อ
+// เจ้าหน้าที่ตั้งใจจะเปลี่ยนค่านั้นจริงๆ (เว้นว่างไว้ = ไม่แตะบัญชีเดิมเลย) คืนค่า error message
+// กลับไปถ้า username ซ้ำกับคนอื่น (ไม่ throw เพราะนี่ไม่ใช่ข้อผิดพลาดของระบบ แต่เป็นข้อมูลไม่ถูกต้อง)
+async function updateAccountCredentials(conn, personId, username, password) {
+    const trimmedUsername = (username || '').trim();
+
+    if (trimmedUsername) {
+        if (await isUsernameTakenByOther(conn, trimmedUsername, personId)) {
+            return "username นี้ถูกใช้งานแล้ว";
+        }
+        await conn.query("UPDATE account SET username = ? WHERE person_id = ?", [trimmedUsername, personId]);
+    }
+
+    if (password) {
+        await conn.query("UPDATE account SET password = SHA2(?, 256) WHERE person_id = ?", [password, personId]);
+    }
+
+    return null;
+}
+
 module.exports = {
     getAllRoles: async () => {
         let conn;
@@ -236,7 +265,7 @@ module.exports = {
         }
     },
 
-    updateStudent: async (personId, firstname, lastname, phone, roomNumber) => {
+    updateStudent: async (personId, firstname, lastname, phone, roomNumber, username, password) => {
         let conn;
         let result;
 
@@ -254,6 +283,13 @@ module.exports = {
                 [roomNumber, personId]
             );
 
+            const credentialError = await updateAccountCredentials(conn, personId, username, password);
+            if (credentialError) {
+                await conn.rollback();
+                result = { isError: true, data: "", errorMessage: credentialError };
+                return;
+            }
+
             await conn.commit();
 
             result = { isError: false, data: "", errorMessage: "" };
@@ -270,7 +306,7 @@ module.exports = {
         }
     },
 
-    updateModerator: async (personId, firstname, lastname, phone, positionId) => {
+    updateModerator: async (personId, firstname, lastname, phone, positionId, username, password) => {
         let conn;
         let result;
 
@@ -287,6 +323,13 @@ module.exports = {
                 "UPDATE moderator SET position_id = ? WHERE person_id = ?",
                 [positionId, personId]
             );
+
+            const credentialError = await updateAccountCredentials(conn, personId, username, password);
+            if (credentialError) {
+                await conn.rollback();
+                result = { isError: true, data: "", errorMessage: credentialError };
+                return;
+            }
 
             await conn.commit();
 

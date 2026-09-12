@@ -13,6 +13,7 @@ class RepairDetail {
   final String? appointmentDate;
   final String? finishDate;
   final String reportDate;
+  final String? repairReport;
 
   const RepairDetail({
     required this.caseCode,
@@ -29,6 +30,7 @@ class RepairDetail {
     required this.appointmentDate,
     required this.finishDate,
     required this.reportDate,
+    this.repairReport,
   });
 
   factory RepairDetail.fromJson(Map<String, dynamic> json) {
@@ -52,6 +54,21 @@ class RepairDetail {
       appointmentDate: json['appointment_date'] as String?,
       finishDate: json['finish_date'] as String?,
       reportDate: json['report_date'] as String? ?? '',
+      repairReport: json['progress_detail_des'] as String?,
+    );
+  }
+}
+
+class RepairPhoto {
+  final int photoId;
+  final String photoUrl;
+
+  const RepairPhoto({required this.photoId, required this.photoUrl});
+
+  factory RepairPhoto.fromJson(Map<String, dynamic> json) {
+    return RepairPhoto(
+      photoId: json['photo_id'] as int,
+      photoUrl: json['photo_url'] as String? ?? '',
     );
   }
 }

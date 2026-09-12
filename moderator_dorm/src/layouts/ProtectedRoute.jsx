@@ -15,7 +15,7 @@ function decodeTokenPayload(token) {
  * (นักศึกษา/ช่าง ไม่มีสิทธิ์เข้าหน้าเว็บฝั่งนี้)
  */
 export default function ProtectedRoute({ allowedRoleIds }) {
-  const accessToken = localStorage.getItem("access_token");
+  const accessToken = sessionStorage.getItem("access_token");
 
   if (!accessToken) {
     return <Navigate to="/login" replace />;

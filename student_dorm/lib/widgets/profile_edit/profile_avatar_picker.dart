@@ -1,14 +1,48 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:student_dorm/color/colors.dart';
+import 'package:student_dorm/screen/photo_viewer_screen.dart' show photoFullUrl;
+import 'package:student_dorm/utils/app_api.dart';
 
 /// ส่วนรูปโปรไฟล์ในหน้าแก้ไขข้อมูล (สไตล์อ้างอิงจาก
 /// Prototype/Student/profile_edit.html .avatar-section)
-/// ยังเป็น widget ตกแต่งเท่านั้น — การอัปโหลดรูปจริงยังไม่อยู่ในขอบเขตงานนี้
-class ProfileAvatarPicker extends StatelessWidget {
-  const ProfileAvatarPicker({super.key});
+/// เป็น StatefulWidget เพราะต้อง track รูปปัจจุบัน + สถานะกำลังอัปโหลด
+/// ที่เปลี่ยนจากการกระทำของผู้ใช้เองภายใน widget นี้
+class ProfileAvatarPicker extends StatefulWidget {
+  const ProfileAvatarPicker({super.key, this.onUploaded});
 
-  void _showComingSoon(BuildContext context) {
+  /// เรียกเมื่ออัปโหลดรูปสำเร็จ ให้หน้าที่เรียกใช้รู้ว่าต้อง refresh ข้อมูลตอนย้อนกลับ
+  final VoidCallback? onUploaded;
+
+  @override
+  State<ProfileAvatarPicker> createState() => _ProfileAvatarPickerState();
+}
+
+class _ProfileAvatarPickerState extends State<ProfileAvatarPicker> {
+  String? _imageUrl;
+  bool _isUploading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCurrentImage();
+  }
+
+  Future<void> _loadCurrentImage() async {
+    final prefs = await SharedPreferences.getInstance();
+    final imageUrl = prefs.getString('image_url');
+    if (!mounted) return;
+
+    setState(() {
+      _imageUrl = (imageUrl == null || imageUrl.isEmpty) ? null : imageUrl;
+    });
+  }
+
+  void _showMessage(String message) {
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -17,11 +51,85 @@ class ProfileAvatarPicker extends StatelessWidget {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         margin: const EdgeInsets.only(bottom: 24, left: 40, right: 40),
         content: Text(
-          'ฟีเจอร์เปลี่ยนรูปโปรไฟล์กำลังพัฒนา',
+          message,
           style: GoogleFonts.sarabun(fontSize: 13, color: const Color(0xFFF0F0F3)),
         ),
       ),
     );
+  }
+
+  Future<void> _showImageSourcePicker() async {
+    if (_isUploading) return;
+
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Wrap(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined, color: kNavyMid),
+                title: Text('เลือกจากแกลเลอรี่', style: GoogleFonts.sarabun(fontSize: 14)),
+                onTap: () => Navigator.of(context).pop(ImageSource.gallery),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_camera_outlined, color: kNavyMid),
+                title: Text('ถ่ายภาพใหม่', style: GoogleFonts.sarabun(fontSize: 14)),
+                onTap: () => Navigator.of(context).pop(ImageSource.camera),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (source == null) return;
+
+    // ใช้ XFile จาก image_picker เสมอ ห้ามแปลงเป็น dart:io.File
+    // เพราะ dart:io.File ใช้ไม่ได้บน Flutter Web
+    final XFile? pickedFile = await ImagePicker().pickImage(source: source, imageQuality: 85);
+    if (pickedFile == null) return;
+
+    await _uploadPhoto(pickedFile);
+  }
+
+  Future<void> _uploadPhoto(XFile file) async {
+    setState(() {
+      _isUploading = true;
+    });
+
+    try {
+      final response = await AppAPI.uploadFiles(
+        '/profile/photo',
+        [file],
+        fieldName: 'photo',
+      );
+      final Map<String, dynamic> json = jsonDecode(response.body);
+
+      if (json['isError'] == true || json['data'] == null) {
+        _showMessage(json['errorMessage'] ?? 'อัปโหลดรูปภาพไม่สำเร็จ');
+        return;
+      }
+
+      final String newImageUrl = json['data'] as String;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('image_url', newImageUrl);
+
+      if (!mounted) return;
+      setState(() {
+        _imageUrl = newImageUrl;
+      });
+      widget.onUploaded?.call();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUploading = false;
+        });
+      }
+    }
   }
 
   @override
@@ -56,13 +164,12 @@ class ProfileAvatarPicker extends StatelessWidget {
                     ),
                   ],
                 ),
-                child: Container(
-                  decoration: const BoxDecoration(
+                child: ClipOval(
+                  child: Container(
                     color: kNavyLight,
-                    shape: BoxShape.circle,
+                    alignment: Alignment.center,
+                    child: _buildAvatarContent(),
                   ),
-                  alignment: Alignment.center,
-                  child: const Icon(Icons.person, size: 52, color: kNavyMid),
                 ),
               ),
               Positioned(
@@ -73,7 +180,7 @@ class ProfileAvatarPicker extends StatelessWidget {
                   shape: const CircleBorder(),
                   child: InkWell(
                     customBorder: const CircleBorder(),
-                    onTap: () => _showComingSoon(context),
+                    onTap: _showImageSourcePicker,
                     child: Container(
                       width: 34,
                       height: 34,
@@ -113,5 +220,28 @@ class ProfileAvatarPicker extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  Widget _buildAvatarContent() {
+    if (_isUploading) {
+      return const SizedBox(
+        width: 28,
+        height: 28,
+        child: CircularProgressIndicator(strokeWidth: 2.5, color: kNavyMid),
+      );
+    }
+
+    if (_imageUrl != null) {
+      return Image.network(
+        photoFullUrl(_imageUrl!),
+        width: 100,
+        height: 100,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) =>
+            const Icon(Icons.person, size: 52, color: kNavyMid),
+      );
+    }
+
+    return const Icon(Icons.person, size: 52, color: kNavyMid);
   }
 }

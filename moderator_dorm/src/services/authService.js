@@ -150,9 +150,11 @@ export async function accessRequest(username, password, authenToken)
       );
     }
 
-    localStorage.setItem("access_token", accessToken);
-    localStorage.setItem("username", cleanUsername);
-    localStorage.setItem("image_url", imageUrl);
+    // ใช้ sessionStorage แทน localStorage: ปิดแท็บ/เบราว์เซอร์แล้วต้อง login ใหม่เสมอ
+    // (กันไม่ให้แปะลิงก์ตรงเข้าหน้า moderator ได้เรื่อยๆ หลังปิดแท็บไปแล้ว)
+    sessionStorage.setItem("access_token", accessToken);
+    sessionStorage.setItem("username", cleanUsername);
+    sessionStorage.setItem("image_url", imageUrl);
 
     return {
       isError: false,

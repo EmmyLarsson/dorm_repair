@@ -4,6 +4,7 @@ class StudentProfile {
   final String phone;
   final String roomNumber;
   final String studentNo;
+  final String? imageUrl;
 
   const StudentProfile({
     required this.firstname,
@@ -11,6 +12,7 @@ class StudentProfile {
     required this.phone,
     required this.roomNumber,
     required this.studentNo,
+    this.imageUrl,
   });
 
   String get fullName => '$firstname $lastname'.trim();
@@ -22,6 +24,7 @@ class StudentProfile {
       phone: json['phone'] as String? ?? '',
       roomNumber: json['room_number'] as String? ?? '',
       studentNo: json['student_no'] as String? ?? '',
+      imageUrl: json['image_url'] as String?,
     );
   }
 }

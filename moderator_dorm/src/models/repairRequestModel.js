@@ -14,6 +14,8 @@ export class RepairRequestModel {
     technicianName,
     appointmentDate,
     createdAt,
+    repairReport,
+    hasPendingComplaint,
   }) {
     this.requestId = requestId;
     this.caseCode = caseCode;
@@ -29,6 +31,8 @@ export class RepairRequestModel {
     this.technicianName = technicianName;
     this.appointmentDate = appointmentDate;
     this.createdAt = createdAt;
+    this.repairReport = repairReport;
+    this.hasPendingComplaint = hasPendingComplaint;
   }
 
   getAppointmentDateLabel() {
@@ -86,6 +90,8 @@ export class RepairRequestModel {
       technicianName: json.technician_name ?? '',
       appointmentDate: json.appointment_date ?? null,
       createdAt: json.report_date,
+      repairReport: json.progress_detail_des ?? '',
+      hasPendingComplaint: Boolean(json.has_pending_complaint),
     });
   }
 }

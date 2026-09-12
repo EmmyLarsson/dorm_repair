@@ -19,9 +19,13 @@ class RepairStepper extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // เดิมเช็คแค่ 2/3/4 พอมีสถานะใหม่ "รอแก้ไข"(5)/"สำเร็จ"(6) เพิ่มเข้ามา เคส 2 สถานะนี้จะไม่เข้าเงื่อนไข
+    // ไหนเลย ตกไปอยู่ที่ else (widthFactor 0.02) ทำให้แถบความคืบหน้าโชว์เกือบ 0% ทั้งที่งานเสร็จจริงแล้ว
+    // (6) หรือกำลังซ่อมรอบใหม่อยู่ (5) — รอแก้ไข(5) workflow เหมือนกำลังซ่อม(2) ทุกอย่าง จึงนับเป็น active
+    // เหมือนกัน ส่วนสำเร็จ(6) คือจุดจบจริง นับรวมกับเสร็จสิ้น(3) เป็น done เหมือนเดิม
     final isCancelled = detail.statusId == 4;
-    final isDone = detail.statusId == 3;
-    final isActive = detail.statusId == 2;
+    final isDone = detail.statusId == 3 || detail.statusId == 6;
+    final isActive = detail.statusId == 2 || detail.statusId == 5;
 
     double widthFactor;
     if (isDone) {

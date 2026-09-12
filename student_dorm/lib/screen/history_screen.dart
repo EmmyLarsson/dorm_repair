@@ -166,7 +166,7 @@ class _HistoryPageState extends State<HistoryPage> {
                                 if (_sortKey == 'status')
                                   ..._buildGrouped(list)
                                 else
-                                  ...list.map((c) => RepairInfoCard(item: c)),
+                                  ...list.map((c) => RepairInfoCard(item: c, onReturn: _fetchData)),
                               ],
                             ),
                           ),
@@ -192,7 +192,7 @@ class _HistoryPageState extends State<HistoryPage> {
       final label = items.first.statusName;
       final color = kStatusBarColors[label] ?? kNavyMid;
       widgets.add(GroupHeader(label: label, color: color, count: items.length));
-      widgets.addAll(items.map((c) => RepairInfoCard(item: c)));
+      widgets.addAll(items.map((c) => RepairInfoCard(item: c, onReturn: _fetchData)));
     }
     return widgets;
   }

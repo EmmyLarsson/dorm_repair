@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:math';
 import 'dart:convert';
 
@@ -12,6 +11,7 @@ import 'package:student_dorm/widgets/report_submit/problem_report_card.dart';
 import 'package:student_dorm/widgets/report_submit/personal_info_form.dart';
 import 'package:student_dorm/widgets/report_submit/work_type_chip.dart';
 import 'package:student_dorm/widgets/report_submit/image_preview_grid.dart';
+import 'package:student_dorm/widgets/report_submit/existing_photo_grid.dart';
 
 class ReportSubmitScreen extends StatefulWidget {
   const ReportSubmitScreen({super.key, this.requestId = 0});
@@ -35,7 +35,12 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
   String _infoMode = 'new'; // 'new' | 'saved'
   String _titleText = 'แจ้งซ่อม';
 
-  final List<File> _uploadedImages = [];
+  final List<XFile> _uploadedImages = [];
+
+  // รูปเดิมที่เคยแนบไว้แล้ว (โหมดแก้ไขเท่านั้น) — กด ✕ แล้วหายจากลิสต์นี้ก่อน
+  // ยังไม่ลบจริงจนกว่าจะกด "แก้ไขรายงาน"
+  List<RepairPhoto> _existingPhotos = [];
+  Set<int> _initialExistingPhotoIds = {};
 
   // ── Validation error flags ──
   bool _errName = false;
@@ -86,6 +91,8 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
     if (!mounted || detail == null) return;
 
     final nameParts = detail.studentName.trim().split(' ');
+    final existingPhotos = await _getExistingPhotos(widget.requestId);
+    if (!mounted) return;
 
     setState(() {
       nameController.text = nameParts.first;
@@ -101,6 +108,29 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
               .where((workType) => detail.typeNames.contains(workType.label))
               .map((workType) => int.parse(workType.id)),
         );
+      _existingPhotos = existingPhotos;
+      _initialExistingPhotoIds = existingPhotos.map((p) => p.photoId).toSet();
+    });
+  }
+
+  Future<List<RepairPhoto>> _getExistingPhotos(int requestId) async {
+    try {
+      final response = await AppAPI.get('/repair_request/$requestId/photos');
+      final Map<String, dynamic> json = jsonDecode(response.body);
+
+      if (json['isError'] == true || json['data'] == null) return [];
+
+      return (json['data'] as List)
+          .map((e) => RepairPhoto.fromJson(e as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  void _removeExistingPhoto(int index) {
+    setState(() {
+      _existingPhotos.removeAt(index);
     });
   }
 
@@ -183,24 +213,25 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
   // ══════════════════════════════════════════
   // Image Upload (image_picker)
   // ══════════════════════════════════════════
+  int get _totalImageCount => _existingPhotos.length + _uploadedImages.length;
+
   Future<void> _pickImages() async {
-    if (_uploadedImages.length >= _maxImages) return;
+    if (_totalImageCount >= _maxImages) return;
 
     final List<XFile> picked = await _picker.pickMultiImage(imageQuality: 85);
     if (picked.isEmpty) return;
 
     int skippedSize = 0;
-    final List<File> accepted = [];
+    final List<XFile> accepted = [];
 
     for (final xfile in picked) {
-      if (_uploadedImages.length + accepted.length >= _maxImages) break;
-      final file = File(xfile.path);
-      final sizeInMb = await file.length() / (1024 * 1024);
+      if (_totalImageCount + accepted.length >= _maxImages) break;
+      final sizeInMb = await xfile.length() / (1024 * 1024);
       if (sizeInMb > _maxFileMb) {
         skippedSize++;
         continue;
       }
-      accepted.add(file);
+      accepted.add(xfile);
     }
 
     setState(() {
@@ -216,14 +247,14 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
   }
 
   Future<void> _pickFromCamera() async {
-    if (_uploadedImages.length >= _maxImages) return;
+    if (_totalImageCount >= _maxImages) return;
     final XFile? shot = await _picker.pickImage(
       source: ImageSource.camera,
       imageQuality: 85,
     );
     if (shot == null) return;
     setState(() {
-      _uploadedImages.add(File(shot.path));
+      _uploadedImages.add(shot);
     });
   }
 
@@ -259,7 +290,7 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
 
   String get _fullName => '${nameController.text.trim()} ${lastNameController.text.trim()}'.trim();
 
-  Future<(bool, String, String)> _doCreateRepairRequest() async {
+  Future<(bool, String, String, int)> _doCreateRepairRequest() async {
     Map<String, dynamic> postData = {
       "name": _fullName,
       "phone": phoneController.text.trim(),
@@ -275,11 +306,35 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
     final String errorMessage = json["errorMessage"] ?? "";
 
     String caseCode = "";
+    int requestId = 0;
 
     if (!isError) {
       caseCode = json["data"]["case_code"].toString();
+      requestId = json["data"]["request_id"];
     }
-    return (isError, errorMessage, caseCode);
+    return (isError, errorMessage, caseCode, requestId);
+  }
+
+  Future<(bool, String)> _doUploadPhotos(int requestId) async {
+    // โหมดแก้ไข: ถ้ากด ✕ ลบรูปเดิมออกไป (แม้ไม่ได้แนบรูปใหม่เพิ่ม) ก็ต้องส่งไปแทนที่ชุดเดิมด้วย
+    final bool isEditMode = widget.requestId != 0;
+    final bool existingPhotosChanged =
+        isEditMode && _existingPhotos.length != _initialExistingPhotoIds.length;
+
+    if (_uploadedImages.isEmpty && !existingPhotosChanged) return (false, "");
+
+    final response = await AppAPI.uploadFiles(
+      "/repair_request/$requestId/photos",
+      _uploadedImages,
+      fields: isEditMode
+          ? {"keep_urls": jsonEncode(_existingPhotos.map((p) => p.photoUrl).toList())}
+          : {},
+    );
+    final Map<String, dynamic> json = jsonDecode(response.body);
+    final bool isError = json["isError"];
+    final String errorMessage = json["errorMessage"] ?? "";
+
+    return (isError, errorMessage);
   }
 
   Future<(bool, String)> _doUpdateRepairRequest() async {
@@ -308,7 +363,15 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
     }
 
     if (widget.requestId != 0) {
-      var (isError, errorMessage) = await _doUpdateRepairRequest();
+      bool isError;
+      String errorMessage;
+      try {
+        (isError, errorMessage) = await _doUpdateRepairRequest();
+      } catch (e) {
+        if (!mounted) return;
+        _showToast('บันทึกข้อมูลไม่สำเร็จ: $e', isWarn: true);
+        return;
+      }
 
       if (!mounted) return;
 
@@ -322,11 +385,35 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
         return;
       }
 
+      try {
+        var (photoIsError, photoErrorMessage) = await _doUploadPhotos(widget.requestId);
+
+        if (!mounted) return;
+
+        if (photoIsError) {
+          _showToast('แนบรูปภาพไม่สำเร็จ: $photoErrorMessage', isWarn: true);
+        }
+      } catch (e) {
+        if (!mounted) return;
+        _showToast('แนบรูปภาพไม่สำเร็จ: $e', isWarn: true);
+      }
+
       Navigator.pop(context);
       return;
     }
 
-    var (isError, errorMessage, caseCode) = await _doCreateRepairRequest();
+    bool isError;
+    String errorMessage;
+    String caseCode;
+    int requestId;
+    try {
+      (isError, errorMessage, caseCode, requestId) =
+          await _doCreateRepairRequest();
+    } catch (e) {
+      if (!mounted) return;
+      _showToast('ส่งรายงานไม่สำเร็จ: $e', isWarn: true);
+      return;
+    }
 
     if (!mounted) return;
 
@@ -338,6 +425,19 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
         },
       );
       return;
+    }
+
+    try {
+      var (photoIsError, photoErrorMessage) = await _doUploadPhotos(requestId);
+
+      if (!mounted) return;
+
+      if (photoIsError) {
+        _showToast('แนบรูปภาพไม่สำเร็จ: $photoErrorMessage', isWarn: true);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      _showToast('แนบรูปภาพไม่สำเร็จ: $e', isWarn: true);
     }
 
     final String workTypeLabel = kWorkTypes
@@ -849,17 +949,8 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
   // แทนการใช้ _mockProfile ที่ hardcode ไว้ตอนนี้
   // ═══════════════════════════════════════════════════════
 
-  // ═══════════════════════════════════════════════════════
-  // การ์ด 3: รูปภาพประกอบ
-  // ⚠️ TODO(backend): รูปที่แนบต้องอัพโหลดแบบ multipart/form-data ไปยัง
-  // Node.js (เช่น endpoint POST /api/repairs/:id/photos ด้วย multer)
-  // แล้วเก็บ path/URL ที่ได้ลงตาราง `repair_photos` ใน MySQL
-  // (แยกตารางจาก repair_requests เพราะเป็น 1-ต่อ-หลายรูป)
-  // ค่า "การอนุญาตเข้าห้อง" (_permission) บันทึกเป็น column
-  // `allow_entry` (ENUM('yes','no')) ใน `repair_requests`
-  // ═══════════════════════════════════════════════════════
   Widget _buildPhotoCard() {
-    final bool isFull = _uploadedImages.length >= _maxImages;
+    final bool isFull = _totalImageCount >= _maxImages;
 
     return _card(
       child: Column(
@@ -892,7 +983,7 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
-                  '${_uploadedImages.length} / $_maxImages',
+                  '$_totalImageCount / $_maxImages',
                   style: GoogleFonts.sarabun(
                     fontSize: 11.5,
                     fontWeight: FontWeight.w700,
@@ -971,6 +1062,11 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
               ),
             ),
           ),
+
+          if (_existingPhotos.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            ExistingPhotoGrid(photos: _existingPhotos, onRemove: _removeExistingPhoto),
+          ],
 
           if (_uploadedImages.isNotEmpty) ...[
             const SizedBox(height: 12),
@@ -1219,7 +1315,9 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
                   const Icon(Icons.send, color: Colors.white, size: 20),
                   const SizedBox(width: 8),
                   Text(
-                    _isSubmitting ? 'กำลังส่ง...' : 'ส่งรายงาน',
+                    _isSubmitting
+                        ? 'กำลังส่ง...'
+                        : (widget.requestId != 0 ? 'แก้ไขรายงาน' : 'ส่งรายงาน'),
                     style: GoogleFonts.sarabun(
                       fontSize: 16,
                       fontWeight: FontWeight.w700,

@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:student_dorm/color/colors.dart';
-import 'package:student_dorm/models/repair_detail_model.dart' show RepairDetail;
+import 'package:student_dorm/models/repair_detail_model.dart' show RepairDetail, RepairPhoto;
+import 'package:student_dorm/screen/photo_viewer_screen.dart';
 import 'package:student_dorm/widgets/repair_detail/repair_timeline.dart' show formatDateShort, kRadiusLg;
 
 /// เปิด modal "รายละเอียดคำร้องแจ้งซ่อม" แบบ bottom sheet
-/// ข้อมูลที่แสดงทั้งหมดมาจาก [detail] ที่ดึงจาก backend (get_by_id) อยู่แล้ว ไม่มีการ mock ข้อมูลเพิ่ม
+/// ข้อมูลที่แสดงทั้งหมด (รวมรูปภาพ) มาจากที่ CaseStatusScreen ดึงจาก backend มาแล้ว
+/// ส่งเข้ามาเป็น data ตรงๆ — modal นี้ไม่ fetch เอง
 Future<void> showRequestDetailModal(
   BuildContext context,
   RepairDetail detail, {
   required int requestId,
+  required List<RepairPhoto> photos,
   required void Function(int) onEditPressed,
 }) {
   return showModalBottomSheet(
@@ -18,6 +21,7 @@ Future<void> showRequestDetailModal(
     builder: (_) => RequestDetailModal(
       detail: detail,
       requestId: requestId,
+      photos: photos,
       onEditPressed: onEditPressed,
     ),
   );
@@ -29,11 +33,13 @@ class RequestDetailModal extends StatelessWidget {
     super.key,
     required this.detail,
     required this.requestId,
+    required this.photos,
     required this.onEditPressed,
   });
 
   final RepairDetail detail;
   final int requestId;
+  final List<RepairPhoto> photos;
   final void Function(int) onEditPressed;
 
   @override
@@ -109,19 +115,108 @@ class RequestDetailModal extends StatelessWidget {
                     iconColor: kGreen,
                     iconColorDark: kGreenDark,
                     title: 'รูปภาพที่แนบ',
-                    count: '0 รูป',
+                    count: '${photos.length} รูป',
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(vertical: 28),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      border: Border.all(color: kGray200, width: 1.5),
-                      borderRadius: BorderRadius.circular(kRadiusLg),
+                  if (photos.isEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(vertical: 28),
+                      decoration: BoxDecoration(
+                        color: kGray50,
+                        border: Border.all(color: kGray200, width: 1.5),
+                        borderRadius: BorderRadius.circular(kRadiusLg),
+                      ),
+                      child: Column(
+                        children: [
+                          const Icon(Icons.photo_outlined, size: 28, color: kGray400),
+                          const SizedBox(height: 8),
+                          const Text('ยังไม่มีรูปภาพแนบ', style: TextStyle(fontSize: 13, color: kTextMuted)),
+                        ],
+                      ),
+                    )
+                  else
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: kGray50,
+                        border: Border.all(color: kGray200, width: 1.5),
+                        borderRadius: BorderRadius.circular(kRadiusLg),
+                      ),
+                      child: GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: photos.length,
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 3,
+                        crossAxisSpacing: 8,
+                        mainAxisSpacing: 8,
+                      ),
+                      itemBuilder: (context, index) {
+                        return Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: kGray200, width: 1.5),
+                            boxShadow: const [
+                              BoxShadow(color: Color(0x0F000000), blurRadius: 10, offset: Offset(0, 3)),
+                            ],
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          child: Material(
+                            color: kGray100,
+                            child: InkWell(
+                              onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => PhotoViewerScreen(
+                                    photos: photos,
+                                    initialIndex: index,
+                                    caseCode: detail.caseCode,
+                                  ),
+                                ),
+                              ),
+                              child: Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  Image.network(
+                                    photoFullUrl(photos[index].photoUrl),
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (context, error, stackTrace) => Container(
+                                      color: kGray100,
+                                      child: const Icon(Icons.broken_image, color: kGray400),
+                                    ),
+                                    loadingBuilder: (context, child, progress) {
+                                      if (progress == null) return child;
+                                      return Container(
+                                        color: kGray100,
+                                        child: const Center(
+                                          child: SizedBox(
+                                            width: 20,
+                                            height: 20,
+                                            child: CircularProgressIndicator(strokeWidth: 2),
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                  Positioned(
+                                    right: 5,
+                                    bottom: 5,
+                                    child: Container(
+                                      width: 22,
+                                      height: 22,
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withValues(alpha: 0.45),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(Icons.zoom_in, size: 13, color: Colors.white),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                      ),
                     ),
-                    child: Center(
-                      child: Text('ยังไม่มีรูปภาพแนบ', style: TextStyle(fontSize: 13, color: kTextMuted)),
-                    ),
-                  ),
                 ],
               ),
             ),
@@ -185,8 +280,8 @@ class RequestDetailModal extends StatelessWidget {
                 borderRadius: BorderRadius.circular(999),
                 onTap: canEdit
                     ? () {
-                        Navigator.of(context).maybePop();
-                        onEditPressed(requestId);
+                        Navigator.of(context).pop();
+                        Future.microtask(() => onEditPressed(requestId));
                       }
                     : null,
                 child: Padding(

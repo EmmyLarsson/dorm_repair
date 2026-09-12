@@ -3,7 +3,7 @@ import StatusPill from '../components/StatusPill';
 import PersonnelCard from '../components/personnel/PersonnelCard';
 import PersonnelFormModal from '../components/personnel/PersonnelFormModal';
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal';
-import { AppAPI } from '../services/appApi';
+import { AppAPI } from '../utils/appApi';
 import { PersonnelModel } from '../models/personnelModel';
 
 const CARDS_PER_PAGE = 6;
@@ -85,6 +85,8 @@ async function updatePersonnel(values) {
       lastname: values.lastname,
       phone: values.phone,
       room_number: values.roomNumber,
+      username: values.username,
+      password: values.password,
     });
     return response.json();
   }
@@ -96,6 +98,8 @@ async function updatePersonnel(values) {
       lastname: values.lastname,
       phone: values.phone,
       position_id: values.positionId,
+      username: values.username,
+      password: values.password,
     });
     return response.json();
   }
@@ -132,6 +136,7 @@ function PersonnelPage() {
 
   const [formModal, setFormModal] = useState({ isOpen: false, mode: 'add', person: null });
   const [deleteTarget, setDeleteTarget] = useState(null); // { personIds: [], label: '' }
+  const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);
 
   function showToast(message) {
@@ -243,12 +248,19 @@ function PersonnelPage() {
     });
   }
 
-  function requestDeleteAll() {
-    if (filteredData.length === 0) return;
-    setDeleteTarget({
-      personIds: filteredData.map((p) => p.personId),
-      label: `คุณกำลังจะลบบุคลากรทั้งหมด ${filteredData.length} คนใช่หรือไม่?`,
-    });
+  function enterSelectMode() {
+    setSelectMode(true);
+  }
+
+  function cancelSelectMode() {
+    setSelectMode(false);
+    setSelectedIds([]);
+  }
+
+  function toggleSelectAll() {
+    const allIds = filteredData.map((p) => p.personId);
+    const isAllSelected = allIds.length > 0 && allIds.every((id) => selectedIds.includes(id));
+    setSelectedIds(isAllSelected ? [] : allIds);
   }
 
   async function handleConfirmDelete() {
@@ -262,6 +274,7 @@ function PersonnelPage() {
       return;
     }
 
+    setSelectMode(false);
     setSelectedIds([]);
     closeFormModal();
     showToast('ลบข้อมูลบุคลากรเรียบร้อย');
@@ -322,24 +335,60 @@ function PersonnelPage() {
       </div>
 
       {filteredData.length > 0 && (
-        <div className="flex items-center gap-3 flex-wrap">
-          <button
-            type="button"
-            onClick={requestDeleteSelected}
-            disabled={selectedIds.length === 0}
-            className="flex items-center gap-1.5 rounded-xl bg-red-100 px-4 py-2 text-xs font-bold text-red-700 hover:bg-red-200 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <span className="material-symbols-outlined text-base">delete</span>
-            ลบที่เลือก{selectedIds.length > 0 ? ` (${selectedIds.length})` : ''}
-          </button>
-          <button
-            type="button"
-            onClick={requestDeleteAll}
-            className="flex items-center gap-1.5 rounded-xl bg-red-700 px-4 py-2 text-xs font-bold text-white hover:bg-red-800"
-          >
-            <span className="material-symbols-outlined text-base">delete_sweep</span>
-            ลบทั้งหมด
-          </button>
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <p className="text-[13.5px] font-semibold text-slate-500">
+            พบ <strong className="text-blue-800">{filteredData.length}</strong> คน
+            {selectMode && (
+              <>
+                {' '}· เลือกไว้ <strong className="text-blue-800">{selectedIds.length}</strong> คน
+              </>
+            )}
+          </p>
+
+          <div className="flex items-center gap-2.5 flex-wrap">
+          {selectMode ? (
+            <>
+              <button
+                type="button"
+                onClick={cancelSelectMode}
+                className="flex items-center gap-1.5 rounded-xl bg-slate-100 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200"
+              >
+                <span className="material-symbols-outlined text-base">close</span>
+                ยกเลิกการเลือก
+              </button>
+              <button
+                type="button"
+                onClick={toggleSelectAll}
+                className="flex items-center gap-1.5 rounded-xl bg-indigo-100 px-4 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-200"
+              >
+                <span className="material-symbols-outlined text-base">
+                  {filteredData.length > 0 && filteredData.every((p) => selectedIds.includes(p.personId))
+                    ? 'deselect'
+                    : 'select_all'}
+                </span>
+                เลือกทั้งหมด
+              </button>
+              <button
+                type="button"
+                onClick={requestDeleteSelected}
+                disabled={selectedIds.length === 0}
+                className="flex items-center gap-1.5 rounded-xl bg-red-700 px-4 py-2 text-xs font-bold text-white hover:bg-red-800 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <span className="material-symbols-outlined text-base">delete</span>
+                ลบ{selectedIds.length > 0 ? ` (${selectedIds.length})` : ''}
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={enterSelectMode}
+              className="flex items-center gap-1.5 rounded-xl bg-white border-[1.5px] border-slate-300 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50"
+            >
+              <span className="material-symbols-outlined text-base">checklist</span>
+              เลือก
+            </button>
+          )}
+          </div>
         </div>
       )}
 
@@ -362,7 +411,7 @@ function PersonnelPage() {
                 key={person.personId}
                 person={person}
                 onEdit={openEditModal}
-                selectable
+                selectable={selectMode}
                 isSelected={selectedIds.includes(person.personId)}
                 onToggleSelect={toggleSelect}
               />

@@ -128,19 +128,20 @@ function PersonnelFormModal({
     if (!form.phone.trim()) next.phone = `กรุณาใส่${fieldLabel('phone')}`;
 
     if (roleId === 1) {
-      if (mode === 'add') {
-        if (!form.username.trim()) {
-          next.username = `กรุณาใส่${fieldLabel('username')}`;
-        } else {
-          const usernameError = validateStudentUsername(form.username.trim());
-          if (usernameError) next.username = usernameError;
-        }
+      // ตอนแก้ไข username/password ไม่บังคับกรอก (เว้นว่าง = ไม่เปลี่ยน) แต่ถ้ากรอกมาก็ต้อง
+      // ตรวจรูปแบบเหมือนตอนสร้างใหม่อยู่ดี — เดิมเช็คแค่ตอน mode === 'add' เท่านั้น ทำให้กรอก
+      // username ผิดรูปแบบตอนแก้ไขแล้วไม่มีอะไรเตือนเลย
+      if (mode === 'add' && !form.username.trim()) {
+        next.username = `กรุณาใส่${fieldLabel('username')}`;
+      } else if (form.username.trim()) {
+        const usernameError = validateStudentUsername(form.username.trim());
+        if (usernameError) next.username = usernameError;
+      }
 
-        if (!form.password) {
-          next.password = `กรุณาใส่${fieldLabel('password')}`;
-        } else if (form.password.length < 6) {
-          next.password = 'รหัสผ่านสั้นเกินไป';
-        }
+      if (mode === 'add' && !form.password) {
+        next.password = `กรุณาใส่${fieldLabel('password')}`;
+      } else if (form.password && form.password.length < 6) {
+        next.password = 'รหัสผ่านสั้นเกินไป';
       }
 
       if (!form.roomNumber.trim()) {
@@ -152,18 +153,16 @@ function PersonnelFormModal({
     }
 
     if (roleId === 2) {
-      if (mode === 'add') {
-        if (!form.username.trim()) {
-          next.username = `กรุณาใส่${fieldLabel('username')}`;
-        } else if (form.username.trim().length < 4) {
-          next.username = 'username สั้นเกินไป';
-        }
+      if (mode === 'add' && !form.username.trim()) {
+        next.username = `กรุณาใส่${fieldLabel('username')}`;
+      } else if (form.username.trim() && form.username.trim().length < 4) {
+        next.username = 'username สั้นเกินไป';
+      }
 
-        if (!form.password) {
-          next.password = `กรุณาใส่${fieldLabel('password')}`;
-        } else if (form.password.length < 6) {
-          next.password = 'รหัสผ่านสั้นเกินไป';
-        }
+      if (mode === 'add' && !form.password) {
+        next.password = `กรุณาใส่${fieldLabel('password')}`;
+      } else if (form.password && form.password.length < 6) {
+        next.password = 'รหัสผ่านสั้นเกินไป';
       }
 
       if (!form.positionId) next.positionId = `กรุณาใส่${fieldLabel('positionId')}`;
@@ -344,32 +343,31 @@ function PersonnelFormModal({
 
         {roleId === 1 && (
           <>
-            {mode === 'add' && (
-              <div className="grid sm:grid-cols-2 gap-4.5 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                <div className="flex flex-col gap-2">
-                  <label className="text-sm font-bold">Username (รหัสนักศึกษา 10 หลัก)</label>
-                  <input
-                    type="text"
-                    placeholder="66112345XX"
-                    value={form.username}
-                    onChange={(e) => setField('username', e.target.value)}
-                    className={inputClass('username')}
-                  />
-                  {errors.username && <p className="text-xs text-red-600">{errors.username}</p>}
-                </div>
-
-                <div className="flex flex-col gap-2">
-                  <label className="text-sm font-bold">Password</label>
-                  <input
-                    type="text"
-                    value={form.password}
-                    onChange={(e) => setField('password', e.target.value)}
-                    className={inputClass('password')}
-                  />
-                  {errors.password && <p className="text-xs text-red-600">{errors.password}</p>}
-                </div>
+            <div className="grid sm:grid-cols-2 gap-4.5 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-bold">Username (รหัสนักศึกษา 10 หลัก)</label>
+                <input
+                  type="text"
+                  placeholder={mode === 'edit' ? 'เว้นว่างไว้ถ้าไม่ต้องการเปลี่ยน' : '66112345XX'}
+                  value={form.username}
+                  onChange={(e) => setField('username', e.target.value)}
+                  className={inputClass('username')}
+                />
+                {errors.username && <p className="text-xs text-red-600">{errors.username}</p>}
               </div>
-            )}
+
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-bold">Password</label>
+                <input
+                  type="text"
+                  placeholder={mode === 'edit' ? 'เว้นว่างไว้ถ้าไม่ต้องการเปลี่ยน' : ''}
+                  value={form.password}
+                  onChange={(e) => setField('password', e.target.value)}
+                  className={inputClass('password')}
+                />
+                {errors.password && <p className="text-xs text-red-600">{errors.password}</p>}
+              </div>
+            </div>
 
             <div className="flex flex-col gap-2">
               <label className="text-sm font-bold">หมายเลขห้อง</label>
@@ -387,31 +385,31 @@ function PersonnelFormModal({
 
         {roleId === 2 && (
           <>
-            {mode === 'add' && (
-              <div className="grid sm:grid-cols-2 gap-4.5 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                <div className="flex flex-col gap-2">
-                  <label className="text-sm font-bold">Username</label>
-                  <input
-                    type="text"
-                    value={form.username}
-                    onChange={(e) => setField('username', e.target.value)}
-                    className={inputClass('username')}
-                  />
-                  {errors.username && <p className="text-xs text-red-600">{errors.username}</p>}
-                </div>
-
-                <div className="flex flex-col gap-2">
-                  <label className="text-sm font-bold">Password</label>
-                  <input
-                    type="text"
-                    value={form.password}
-                    onChange={(e) => setField('password', e.target.value)}
-                    className={inputClass('password')}
-                  />
-                  {errors.password && <p className="text-xs text-red-600">{errors.password}</p>}
-                </div>
+            <div className="grid sm:grid-cols-2 gap-4.5 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-bold">Username</label>
+                <input
+                  type="text"
+                  placeholder={mode === 'edit' ? 'เว้นว่างไว้ถ้าไม่ต้องการเปลี่ยน' : ''}
+                  value={form.username}
+                  onChange={(e) => setField('username', e.target.value)}
+                  className={inputClass('username')}
+                />
+                {errors.username && <p className="text-xs text-red-600">{errors.username}</p>}
               </div>
-            )}
+
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-bold">Password</label>
+                <input
+                  type="text"
+                  placeholder={mode === 'edit' ? 'เว้นว่างไว้ถ้าไม่ต้องการเปลี่ยน' : ''}
+                  value={form.password}
+                  onChange={(e) => setField('password', e.target.value)}
+                  className={inputClass('password')}
+                />
+                {errors.password && <p className="text-xs text-red-600">{errors.password}</p>}
+              </div>
+            </div>
 
             <div className="flex flex-col gap-2">
               <label className="text-sm font-bold">ตำแหน่ง</label>

@@ -8,7 +8,7 @@ import LoginPage from "./pages/LoginPage";
 import HomePage from "./pages/HomePage";
 import RepairManagementPage from "./pages/RepairManagementPage";
 import PersonnelPage from "./pages/PersonnelPage";
-// import InventoryPage from "./pages/InventoryPage";
+import InventoryPage from "./pages/InventoryPage";
 // import ReportPage from "./pages/ReportPage";
 
 export default function Moderator() {
@@ -37,12 +37,12 @@ export default function Moderator() {
             element={<PersonnelPage />}
           />
 
-          {/* <Route
+          <Route
             path="/moderator/inventory"
             element={<InventoryPage />}
           />
 
-          <Route
+          {/* <Route
             path="/moderator/reports"
             element={<ReportPage />}
           /> */}

@@ -1,10 +1,13 @@
 // RepairDetailModal.jsx
 import React, { useEffect, useState } from 'react';
+import { AnimatePresence } from 'framer-motion';
 import BaseModal from './BaseModal';
 import RejectReasonModal from './RejectReasonModal';
+import PhotoLightbox from './PhotoLightbox';
 import { InfoRow, SectionHeader, MetadataBadge } from './ui/InfoRow';
-import { AppAPI } from '../services/appApi';
+import { AppAPI } from '../utils/appApi';
 import { RepairRequestModel } from '../models/repairRequestModel';
+import { photoFullUrl } from '../utils/photoUtil';
 
 async function getRepairRequestDetail(requestId) {
   const response = await AppAPI.get(`/repair_request/get_by_id/${requestId}`);
@@ -29,17 +32,27 @@ async function getRepairRequestDetail(requestId) {
   };
 }
 
+// รูปภาพที่ นศ. แนบมาตอนแจ้งซ่อม — ใช้ประกอบการพิจารณาอนุมัติ/ปฏิเสธคำร้อง
+async function getRepairPhotos(requestId) {
+  const response = await AppAPI.get(`/repair_request/${requestId}/photos`);
+  const json = await response.json();
+
+  return Array.isArray(json.data) ? json.data : [];
+}
+
 const RepairDetailModal = ({ repairId, onClose, onApprove, onReject }) => {
   const isOpen = repairId !== null && repairId !== undefined;
 
-  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState(null);
   const [isRejectOpen, setIsRejectOpen] = useState(false);
   const [detail, setDetail] = useState(null);
+  const [photos, setPhotos] = useState([]);
 
   // ดึงข้อมูลแจ้งซ่อมจริงของ นศ. จาก server ทุกครั้งที่เปลี่ยน repairId
   useEffect(() => {
     if (!isOpen) {
       setDetail(null);
+      setPhotos([]);
       return;
     }
 
@@ -48,6 +61,12 @@ const RepairDetailModal = ({ repairId, onClose, onApprove, onReject }) => {
     getRepairRequestDetail(repairId).then((result) => {
       if (!isCancelled) {
         setDetail(result);
+      }
+    });
+
+    getRepairPhotos(repairId).then((result) => {
+      if (!isCancelled) {
+        setPhotos(result);
       }
     });
 
@@ -66,7 +85,6 @@ const RepairDetailModal = ({ repairId, onClose, onApprove, onReject }) => {
     studentName = '-',
     contactPhone: phoneNumber = '-',
     roomNumber = '-',
-    imageUrl = null,
     statusId = null,
   } = detail || {};
 
@@ -148,23 +166,52 @@ const RepairDetailModal = ({ repairId, onClose, onApprove, onReject }) => {
 
           <div className="flex h-full flex-col space-y-4">
             <SectionHeader icon="image" title="รูปภาพความเสียหาย" />
-            {imageUrl ? (
+            {photos.length > 0 ? (
               <>
                 <div
                   className="group relative flex-1 min-h-72 rounded-3xl overflow-hidden shadow-md bg-slate-100 border border-slate-200 cursor-pointer"
-                  onClick={() => setIsLightboxOpen(true)}
+                  onClick={() => setLightboxIndex(0)}
                 >
-                  <img alt="Damage report" className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" src={imageUrl} />
+                  <img
+                    alt="รูปความเสียหายที่ 1"
+                    className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                    src={photoFullUrl(photos[0].photo_url)}
+                  />
                   <div className="absolute inset-0 bg-gradient-to-t from-slate-900/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end p-6">
                     <button
-                      onClick={(e) => { e.stopPropagation(); setIsLightboxOpen(true); }}
+                      onClick={(e) => { e.stopPropagation(); setLightboxIndex(0); }}
                       className="bg-white/20 backdrop-blur-md border border-white/30 text-white px-4 py-2 rounded-full text-sm font-bold flex items-center gap-2"
                     >
                       <span className="material-symbols-outlined text-sm">zoom_in</span>
                       ดูรูปภาพขนาดใหญ่
                     </button>
                   </div>
+                  {photos.length > 1 && (
+                    <span className="absolute top-3 right-3 bg-black/55 text-white text-xs font-bold px-2.5 py-1 rounded-full">
+                      {photos.length} รูป
+                    </span>
+                  )}
                 </div>
+
+                {photos.length > 1 && (
+                  <div className="grid grid-cols-5 gap-2">
+                    {photos.map((photo, index) => (
+                      <button
+                        key={photo.photo_id}
+                        type="button"
+                        onClick={() => setLightboxIndex(index)}
+                        className="aspect-square rounded-lg overflow-hidden border-2 border-transparent hover:border-blue-400"
+                      >
+                        <img
+                          src={photoFullUrl(photo.photo_url)}
+                          alt={`รูปที่ ${index + 1}`}
+                          className="w-full h-full object-cover"
+                        />
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 <p className="text-slate-500 text-xs italic text-center">
                   * คลิกที่รูปเพื่อดูรายละเอียดเพิ่มเติมแบบขยาย
                 </p>
@@ -179,15 +226,19 @@ const RepairDetailModal = ({ repairId, onClose, onApprove, onReject }) => {
         </div>
       </BaseModal>
 
-      {/* Lightbox แยกอยู่นอก BaseModal (ต้องอยู่ z-index สูงกว่า) */}
-      {isLightboxOpen && imageUrl && (
-        <div
-          className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-6"
-          onClick={() => setIsLightboxOpen(false)}
-        >
-          <img src={imageUrl} alt="Full view" className="max-w-full max-h-full object-contain rounded-2xl" onClick={(e) => e.stopPropagation()} />
-        </div>
-      )}
+      {/* Lightbox แยกอยู่นอก BaseModal (ต้องอยู่ z-index สูงกว่า) — เลื่อนซ้าย-ขวาดูรูปอื่นได้
+          AnimatePresence ตรงนี้จำเป็น ไม่งั้น exit animation ตอนปิดจะไม่เล่นเลย (unmount ทันที) */}
+      <AnimatePresence>
+        {lightboxIndex !== null && photos.length > 0 && (
+          <PhotoLightbox
+            key="photo-lightbox"
+            photos={photos}
+            initialIndex={lightboxIndex}
+            caseCode={caseId}
+            onClose={() => setLightboxIndex(null)}
+          />
+        )}
+      </AnimatePresence>
 
       <RejectReasonModal
         isOpen={isRejectOpen}

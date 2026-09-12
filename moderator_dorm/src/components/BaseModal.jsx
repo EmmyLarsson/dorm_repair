@@ -68,7 +68,8 @@ const BaseModal = ({
       {isOpen && (
         <motion.div
           key="backdrop"
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 md:p-8"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 md:p-8 isolate"
+          style={{ willChange: 'backdrop-filter, opacity' }}
           variants={backdropVariants}
           initial="hidden"
           animate="visible"

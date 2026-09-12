@@ -179,7 +179,11 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          const Center(child: ProfileAvatarPicker()),
+                          Center(
+                            child: ProfileAvatarPicker(
+                              onUploaded: () => _didSave = true,
+                            ),
+                          ),
                           const SizedBox(height: 20),
                           ProfilePersonalInfoCard(
                             firstname: widget.profile.firstname,

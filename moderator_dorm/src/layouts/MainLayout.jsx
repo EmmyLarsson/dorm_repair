@@ -39,7 +39,7 @@ export default function MainLayout() {
       return;
     }
 
-    localStorage.removeItem("access_token");
+    sessionStorage.removeItem("access_token");
 
     navigate("/login", {
       replace: true,

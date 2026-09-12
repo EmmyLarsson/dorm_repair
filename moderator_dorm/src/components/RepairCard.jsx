@@ -3,6 +3,8 @@ const STATUS_BADGE_CLASS = {
   2: 'bg-blue-100 text-blue-800',
   3: 'bg-green-100 text-green-700',
   4: 'bg-red-100 text-red-700',
+  5: 'bg-orange-100 text-orange-800',
+  6: 'bg-emerald-100 text-emerald-800',
 };
 
 /**
@@ -10,7 +12,10 @@ const STATUS_BADGE_CLASS = {
  * ปุ่ม action จะเปลี่ยนตามสถานะ:
  *   รอตรวจสอบ (1)     -> ดูเพิ่มเติม + อนุมัติ/ปฏิเสธ
  *   อยู่ระหว่างซ่อม (2) -> ดูเพิ่มเติม + จัดการ/ยกเลิก
- *   เสร็จสิ้น (3)      -> ดูเพิ่มเติม + ตรวจสอบ
+ *   เสร็จสิ้น (3)      -> ดูเพิ่มเติม + ตรวจสอบ (ตอนนี้หมายถึง "รอนักศึกษายืนยัน" ไม่ใช่จบจริง —
+ *                         ถ้ามีคำร้องค้างตัดสินใจ (hasPendingComplaint) จะมีปุ่ม "จัดการคำร้อง" เพิ่ม)
+ *   รอแก้ไข (5)       -> ดูเพิ่มเติม + จัดการ/ยกเลิก (workflow เหมือน statusId 2 ทุกอย่าง)
+ *   สำเร็จ (6)        -> ดูเพิ่มเติม + ตรวจสอบ (จุดจบจริง)
  *   ปฏิเสธ/ยกเลิก (4)  -> ดูเพิ่มเติม เท่านั้น
  */
 function RepairCard({
@@ -136,7 +141,7 @@ function RepairCard({
             </>
           )}
 
-          {repair.statusId === 2 && (
+          {(repair.statusId === 2 || repair.statusId === 5) && (
             <>
               <button
                 type="button"
@@ -159,6 +164,28 @@ function RepairCard({
           )}
 
           {repair.statusId === 3 && (
+            repair.hasPendingComplaint ? (
+              <button
+                type="button"
+                onClick={() => onManage(repair)}
+                className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-orange-600 px-3 py-2 text-xs font-bold text-white hover:bg-orange-700"
+              >
+                <span className="material-symbols-outlined text-base">report</span>
+                มีคำร้องใหม่ - จัดการ
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onReview(repair)}
+                className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-green-100 px-3 py-2 text-xs font-bold text-green-700 hover:bg-green-200"
+              >
+                <span className="material-symbols-outlined text-base">fact_check</span>
+                ตรวจสอบ
+              </button>
+            )
+          )}
+
+          {repair.statusId === 6 && (
             <button
               type="button"
               onClick={() => onReview(repair)}

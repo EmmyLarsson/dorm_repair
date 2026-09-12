@@ -12,8 +12,9 @@ const kStatusBarColors = {
 };
 
 class RepairInfo extends StatelessWidget {
-  const RepairInfo({super.key, required this.repairrequestModelStore});
+  const RepairInfo({super.key, required this.repairrequestModelStore, this.onReturn});
   final List<RepairRequestModel> repairrequestModelStore;
+  final VoidCallback? onReturn;
 
   @override
   Widget build(BuildContext context) {
@@ -22,15 +23,17 @@ class RepairInfo extends StatelessWidget {
       physics: const NeverScrollableScrollPhysics(),
       itemCount: repairrequestModelStore.length,
       itemBuilder: (context, index) {
-        return RepairInfoCard(item: repairrequestModelStore[index]);
+        return RepairInfoCard(item: repairrequestModelStore[index], onReturn: onReturn);
       },
     );
   }
 }
 
 class RepairInfoCard extends StatelessWidget {
-  const RepairInfoCard({super.key, required this.item});
+  const RepairInfoCard({super.key, required this.item, this.onReturn});
   final RepairRequestModel item;
+  // เรียกเมื่อกลับมาจากหน้ารายละเอียด (เผื่อผู้ใช้แก้ไขคำร้องแล้วรายการเดิมค้างข้อมูลเก่า)
+  final VoidCallback? onReturn;
 
   @override
   Widget build(BuildContext context) {
@@ -45,13 +48,15 @@ class RepairInfoCard extends StatelessWidget {
         elevation: 0,
         child: InkWell(
           borderRadius: BorderRadius.circular(18),
-          onTap: () {
-            Navigator.push(
+          onTap: () async {
+            await Navigator.push(
               context,
               MaterialPageRoute(
                 builder: (_) => CaseStatusScreen(requestId: item.requestId),
               ),
             );
+
+            onReturn?.call();
           },
           child: Container(
                 decoration: BoxDecoration(

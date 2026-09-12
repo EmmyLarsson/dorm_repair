@@ -38,7 +38,7 @@ module.exports = {
         try {
             conn = await pool.getConnection();
 
-            var sql = "SELECT a.username AS student_no, p.firstname, p.lastname, p.phone, s.room_number " +
+            var sql = "SELECT a.username AS student_no, p.firstname, p.lastname, p.phone, s.room_number, p.profile_image AS image_url " +
                       "FROM account a " +
                       "INNER JOIN person p ON a.person_id = p.person_id " +
                       "INNER JOIN student s ON s.person_id = p.person_id " +
@@ -173,6 +173,39 @@ module.exports = {
                 await conn.rollback();
             }
 
+            result = {
+                isError: true,
+                data: "",
+                errorMessage: error.message
+            };
+        } finally {
+            if (conn)
+                conn.release();
+
+            return result;
+        }
+    },
+    updateProfileImage: async (accountId, photoPath) => {
+        let conn;
+        let result;
+
+        try {
+            conn = await pool.getConnection();
+
+            var sql =
+                "UPDATE person p " +
+                "JOIN account a ON a.person_id = p.person_id " +
+                "SET p.profile_image = ? " +
+                "WHERE a.account_id = ?";
+
+            await conn.query(sql, [photoPath, accountId]);
+
+            result = {
+                isError: false,
+                data: photoPath,
+                errorMessage: ""
+            };
+        } catch (error) {
             result = {
                 isError: true,
                 data: "",

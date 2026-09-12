@@ -91,6 +91,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 fullName: _profile?.fullName ?? '',
                 studentNo: _profile?.studentNo ?? '',
                 roomNumber: _profile?.roomNumber ?? '',
+                imageUrl: _profile?.imageUrl,
               ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),

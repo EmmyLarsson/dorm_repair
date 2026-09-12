@@ -22,6 +22,8 @@ class _HomeScreenState extends State<HomeScreen> {
   int cntPending = 0;
   int cntWorking = 0;
   int cntDone = 0;
+  int cntUnderRevision = 0;
+  int cntSuccess = 0;
   bool _isLoading = true;
   String? _errorMessage;
 
@@ -42,7 +44,9 @@ class _HomeScreenState extends State<HomeScreen> {
     RepairRequestResponse repairResponse = RepairRequestResponse.fromJson(json);
     // print(repairResponse.data.length);
 
-    int pending = 0, working = 0, done = 0;
+    // เดิมนับแค่สถานะ 1/2/3 พอมีสถานะใหม่ "รอแก้ไข"(5)/"สำเร็จ"(6) เพิ่มเข้ามา เคสที่อยู่ 2 สถานะนี้
+    // จะไม่ถูกนับในสถิติที่ไหนเลย (หายไปจากหน้าแรกทั้งหมด) เลยเพิ่ม 2 หมวดใหม่แยกจากของเดิม
+    int pending = 0, working = 0, done = 0, underRevision = 0, success = 0;
     for (var item in repairResponse.data) {
       if (item.statusId == 1)
         pending++;
@@ -50,6 +54,10 @@ class _HomeScreenState extends State<HomeScreen> {
         working++;
       else if (item.statusId == 3)
         done++;
+      else if (item.statusId == 5)
+        underRevision++;
+      else if (item.statusId == 6)
+        success++;
     }
 
     setState(() {
@@ -58,6 +66,8 @@ class _HomeScreenState extends State<HomeScreen> {
       cntPending = pending;
       cntWorking = working;
       cntDone = done;
+      cntUnderRevision = underRevision;
+      cntSuccess = success;
     });
   }
 
@@ -153,50 +163,84 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_filteredRepairs.isEmpty) {
       return _buildEmptyState();
     }
-    return RepairInfo(repairrequestModelStore: _filteredRepairs);
+    return RepairInfo(repairrequestModelStore: _filteredRepairs, onReturn: _fetchData);
   }
 
   // ── Stats row ──
   Widget _buildStatsRow(TextTheme textTheme) {
-    return Row(
+    return Column(
       children: [
-        Expanded(
-          child: StatusCard(
-            filterKey: 'รอตรวจสอบ',
-            count: cntPending,
-            label: 'รอตรวจสอบ',
-            color: const Color(0xFFF59E0B),
-            isActive: activeStatusId == 1,
-            onTap: () => setState(() {
-              activeStatusId = activeStatusId == 1 ? null : 1;
-            }),
-          ),
+        Row(
+          children: [
+            Expanded(
+              child: StatusCard(
+                filterKey: 'รอตรวจสอบ',
+                count: cntPending,
+                label: 'รอตรวจสอบ',
+                color: const Color(0xFFF59E0B),
+                isActive: activeStatusId == 1,
+                onTap: () => setState(() {
+                  activeStatusId = activeStatusId == 1 ? null : 1;
+                }),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: StatusCard(
+                filterKey: 'กำลังซ่อม',
+                count: cntWorking,
+                label: 'กำลังซ่อม',
+                color: kNavyMid,
+                isActive: activeStatusId == 2,
+                onTap: () => setState(() {
+                  activeStatusId = activeStatusId == 2 ? null : 2;
+                }),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: StatusCard(
+                filterKey: 'เสร็จแล้ว',
+                count: cntDone,
+                label: 'เสร็จแล้ว',
+                color: const Color(0xFF16A34A),
+                isActive: activeStatusId == 3,
+                onTap: () => setState(() {
+                  activeStatusId = activeStatusId == 3 ? null : 3;
+                }),
+              ),
+            ),
+          ],
         ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: StatusCard(
-            filterKey: 'กำลังซ่อม',
-            count: cntWorking,
-            label: 'กำลังซ่อม',
-            color: kNavyMid,
-            isActive: activeStatusId == 2,
-            onTap: () => setState(() {
-              activeStatusId = activeStatusId == 2 ? null : 2;
-            }),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: StatusCard(
-            filterKey: 'เสร็จแล้ว',
-            count: cntDone,
-            label: 'เสร็จแล้ว',
-            color: const Color(0xFF16A34A),
-            isActive: activeStatusId == 3,
-            onTap: () => setState(() {
-              activeStatusId = activeStatusId == 3 ? null : 3;
-            }),
-          ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: StatusCard(
+                filterKey: 'รอแก้ไข',
+                count: cntUnderRevision,
+                label: 'รอแก้ไข',
+                color: kAmberDark,
+                isActive: activeStatusId == 5,
+                onTap: () => setState(() {
+                  activeStatusId = activeStatusId == 5 ? null : 5;
+                }),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: StatusCard(
+                filterKey: 'สำเร็จ',
+                count: cntSuccess,
+                label: 'สำเร็จ',
+                color: kGreenDark,
+                isActive: activeStatusId == 6,
+                onTap: () => setState(() {
+                  activeStatusId = activeStatusId == 6 ? null : 6;
+                }),
+              ),
+            ),
+          ],
         ),
       ],
     );

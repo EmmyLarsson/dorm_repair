@@ -1,6 +1,6 @@
 import {useEffect, useMemo, useState,} from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AppAPI } from '../services/appApi';
+import { AppAPI } from '../utils/appApi';
 import { RepairRequestModel } from '../models/repairRequestModel';
 import StatusCard from '../components/StatusCard';
 import RepairCard from '../components/RepairCard';
@@ -42,10 +42,14 @@ async function getHomeDashboard() {
 
   const repairs = (Array.isArray(repairsJson.data) ? repairsJson.data : []).map(mapRepairRequestRow);
 
+  // เดิมนับแค่สถานะ 1/2/3 พอมีสถานะใหม่ "รอแก้ไข"(5)/"สำเร็จ"(6) เพิ่มเข้ามา เคสที่อยู่ 2 สถานะนี้
+  // จะไม่ถูกนับในสถิติที่ไหนเลย (หายไปจากหน้าแรกทั้งหมด) เลยเพิ่ม 2 หมวดใหม่แยกจากของเดิม
   const repairSummary = {
     pending: 0,
     waiting: 0,
     completed: 0,
+    underRevision: 0,
+    success: 0,
   };
 
   for (const row of summaryJson.data ?? []) {
@@ -57,6 +61,10 @@ async function getHomeDashboard() {
       repairSummary.waiting = total;
     } else if (row.progress_status_id === 3) {
       repairSummary.completed = total;
+    } else if (row.progress_status_id === 5) {
+      repairSummary.underRevision = total;
+    } else if (row.progress_status_id === 6) {
+      repairSummary.success = total;
     }
   }
 
@@ -89,6 +97,8 @@ const initialDashboard = {
     pending: 0,
     waiting: 0,
     completed: 0,
+    underRevision: 0,
+    success: 0,
   },
 
   repairs: [],
@@ -341,7 +351,7 @@ function HomePage() {
           </button>
         </div>
 
-        <div className="grid gap-5 md:grid-cols-3">
+        <div className="grid gap-5 md:grid-cols-5">
           <StatusCard
             icon="pending_actions"
             number={
@@ -367,6 +377,24 @@ function HomePage() {
             }
             label="เสร็จสิ้น"
             iconClass="bg-green-100 text-green-700"
+          />
+
+          <StatusCard
+            icon="build_circle"
+            number={
+              dashboard.repairSummary.underRevision
+            }
+            label="รอแก้ไข"
+            iconClass="bg-orange-100 text-orange-800"
+          />
+
+          <StatusCard
+            icon="verified"
+            number={
+              dashboard.repairSummary.success
+            }
+            label="สำเร็จ"
+            iconClass="bg-emerald-100 text-emerald-800"
           />
         </div>
       </section>
