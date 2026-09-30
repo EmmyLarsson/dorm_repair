@@ -244,9 +244,11 @@ const RepairDetailModal = ({ repairId, onClose, onApprove, onReject }) => {
         isOpen={isRejectOpen}
         caseCode={caseId}
         onClose={() => setIsRejectOpen(false)}
-        onConfirm={(reason) => {
-          setIsRejectOpen(false);
-          onReject?.(detail, reason);
+        onConfirm={async (reason) => {
+          const succeeded = await onReject?.(detail, reason);
+          if (succeeded) {
+            setIsRejectOpen(false);
+          }
         }}
       />
     </>

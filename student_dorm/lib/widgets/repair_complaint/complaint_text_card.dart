@@ -56,10 +56,12 @@ class ComplaintTextCard extends StatelessWidget {
           TextField(
             controller: controller,
             maxLines: 5,
-            style: GoogleFonts.inter(fontSize: 15, color: kRsOnSurface),
+            // เดิมใช้ GoogleFonts.inter() ซึ่งเป็นฟอนต์ Latin-only ไม่มีตัวอักษรไทย พอเรนเดอร์ข้อความไทย
+            // เลยหลุดไป fallback เป็นฟอนต์ระบบเริ่มต้นแทน หน้าตาต่างจาก Sarabun ที่ใช้อยู่ทุกจุดอื่นในหน้านี้
+            style: GoogleFonts.sarabun(fontSize: 15, color: kRsOnSurface),
             decoration: InputDecoration(
               hintText: 'เช่น ซ่อมแล้วแต่ยังไม่สามารถใช้งานได้ปกติ...',
-              hintStyle: GoogleFonts.inter(fontSize: 15, color: const Color(0xFFC0B8A8)),
+              hintStyle: GoogleFonts.sarabun(fontSize: 15, color: const Color(0xFFC0B8A8)),
               filled: true,
               fillColor: kRsFieldBg,
               contentPadding: const EdgeInsets.all(16),

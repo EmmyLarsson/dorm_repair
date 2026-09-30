@@ -9,6 +9,7 @@ import 'package:student_dorm/utils/app_api.dart';
 import 'package:student_dorm/widgets/repair_complaint/complaint_app_bar.dart';
 import 'package:student_dorm/widgets/repair_complaint/complaint_bottom_bar.dart';
 import 'package:student_dorm/widgets/repair_complaint/complaint_photo_card.dart';
+import 'package:student_dorm/widgets/repair_complaint/complaint_reason_card.dart';
 import 'package:student_dorm/widgets/repair_complaint/complaint_text_card.dart';
 
 /// หน้าจอยื่นคำร้องแจ้งแก้ไขงานซ่อม (ไม่พอใจผลการซ่อม) — ไม่มี mockup อ้างอิง
@@ -16,23 +17,53 @@ import 'package:student_dorm/widgets/repair_complaint/complaint_text_card.dart';
 /// (AppBar, การ์ดกรอกข้อความ, การ์ดแนบรูป, แถบปุ่มด้านล่าง) แยกเป็น StatelessWidget ไว้ที่
 /// lib/widgets/repair_complaint/ ตามกฎ CLAUDE.md ข้อ 1.4
 class RepairComplaintScreen extends StatefulWidget {
-  const RepairComplaintScreen({super.key, required this.requestId});
+  const RepairComplaintScreen({
+    super.key,
+    required this.requestId,
+    this.editComplaintId,
+    this.initialText,
+    this.initialPhotoUrls,
+    this.initialReasonId,
+    this.initialAllowEntry,
+  });
 
   final int requestId;
+
+  // ถ้าไม่ null แปลว่าเปิดมาแก้ไขคำร้องเดิม (complaint_id นี้) แทนการยื่นใหม่ — แก้ได้แค่ 1 ครั้ง
+  // ต่อคำร้อง 1 ใบ (เช็คสิทธิ์จริงที่ backend อีกชั้น หน้านี้แค่สลับโหมด UI/endpoint ที่เรียก)
+  final int? editComplaintId;
+  final String? initialText;
+  final List<String>? initialPhotoUrls;
+  final int? initialReasonId;
+  final bool? initialAllowEntry;
 
   @override
   State<RepairComplaintScreen> createState() => _RepairComplaintScreenState();
 }
 
 class _RepairComplaintScreenState extends State<RepairComplaintScreen> {
-  final TextEditingController _textController = TextEditingController();
+  late final TextEditingController _textController =
+      TextEditingController(text: widget.initialText ?? '');
   final ImagePicker _picker = ImagePicker();
 
   static const int _maxImages = 6;
   static const double _maxFileMb = 10;
 
+  bool get _isEditMode => widget.editComplaintId != null;
+
   bool _isSubmitting = false;
   final List<XFile> _newPhotos = [];
+  final List<String> _existingPhotoUrls = [];
+  int? _selectedReasonId;
+  bool? _allowEntry;
+
+  @override
+  void initState() {
+    super.initState();
+    _existingPhotoUrls.addAll(widget.initialPhotoUrls ?? []);
+    _selectedReasonId = widget.initialReasonId;
+    _allowEntry = widget.initialAllowEntry;
+  }
 
   @override
   void dispose() {
@@ -40,8 +71,16 @@ class _RepairComplaintScreenState extends State<RepairComplaintScreen> {
     super.dispose();
   }
 
+  void _removeExistingPhoto(int index) {
+    setState(() {
+      _existingPhotoUrls.removeAt(index);
+    });
+  }
+
+  int get _totalPhotoCount => _existingPhotoUrls.length + _newPhotos.length;
+
   Future<void> _pickImages() async {
-    if (_newPhotos.length >= _maxImages) return;
+    if (_totalPhotoCount >= _maxImages) return;
 
     final List<XFile> picked = await _picker.pickMultiImage(imageQuality: 85);
     if (picked.isEmpty) return;
@@ -50,7 +89,7 @@ class _RepairComplaintScreenState extends State<RepairComplaintScreen> {
     final List<XFile> accepted = [];
 
     for (final xfile in picked) {
-      if (_newPhotos.length + accepted.length >= _maxImages) break;
+      if (_totalPhotoCount + accepted.length >= _maxImages) break;
       final sizeInMb = await xfile.length() / (1024 * 1024);
       if (sizeInMb > _maxFileMb) {
         skippedSize++;
@@ -69,7 +108,7 @@ class _RepairComplaintScreenState extends State<RepairComplaintScreen> {
   }
 
   Future<void> _pickFromCamera() async {
-    if (_newPhotos.length >= _maxImages) return;
+    if (_totalPhotoCount >= _maxImages) return;
     final XFile? shot = await _picker.pickImage(source: ImageSource.camera, imageQuality: 85);
     if (shot == null) return;
     setState(() {
@@ -118,6 +157,16 @@ class _RepairComplaintScreenState extends State<RepairComplaintScreen> {
   }
 
   Future<void> _handleSubmit() async {
+    if (_selectedReasonId == null) {
+      _showToast('โปรดเลือกหมวดหมู่เหตุผลก่อนส่งคำร้อง', isWarn: true);
+      return;
+    }
+
+    if (_allowEntry == null) {
+      _showToast('โปรดเลือกว่าอนุญาตให้ช่างเข้าห้องหรือไม่ก่อนส่งคำร้อง', isWarn: true);
+      return;
+    }
+
     final text = _textController.text.trim();
     if (text.isEmpty) {
       _showToast('โปรดระบุรายละเอียดปัญหาก่อนส่งคำร้อง', isWarn: true);
@@ -131,12 +180,16 @@ class _RepairComplaintScreenState extends State<RepairComplaintScreen> {
     http.Response response;
     try {
       response = await AppAPI.uploadFiles(
-        '/repair_request/complaint',
+        _isEditMode ? '/repair_request/complaint/edit' : '/repair_request/complaint',
         _newPhotos,
         fieldName: 'photos',
         fields: {
           'request_id': '${widget.requestId}',
           'complaint_text': text,
+          'complaint_reason_id': '$_selectedReasonId',
+          'allow_entry': _allowEntry! ? '1' : '0',
+          if (_isEditMode) 'complaint_id': '${widget.editComplaintId}',
+          if (_isEditMode) 'existing_photo_urls': jsonEncode(_existingPhotoUrls),
         },
       );
     } catch (e) {
@@ -144,7 +197,7 @@ class _RepairComplaintScreenState extends State<RepairComplaintScreen> {
       setState(() {
         _isSubmitting = false;
       });
-      _showToast('ส่งคำร้องไม่สำเร็จ: $e', isWarn: true);
+      _showToast('${_isEditMode ? "บันทึกการแก้ไข" : "ส่งคำร้อง"}ไม่สำเร็จ: $e', isWarn: true);
       return;
     }
 
@@ -156,7 +209,7 @@ class _RepairComplaintScreenState extends State<RepairComplaintScreen> {
 
     final Map<String, dynamic> json = jsonDecode(response.body);
     if (json['isError'] == true) {
-      _showToast(json['errorMessage'] as String? ?? 'ส่งคำร้องไม่สำเร็จ', isWarn: true);
+      _showToast(json['errorMessage'] as String? ?? '${_isEditMode ? "บันทึกการแก้ไข" : "ส่งคำร้อง"}ไม่สำเร็จ', isWarn: true);
       return;
     }
 
@@ -236,7 +289,7 @@ class _RepairComplaintScreenState extends State<RepairComplaintScreen> {
                 ),
               ),
               Text(
-                'ส่งคำร้องเรียบร้อยแล้ว',
+                _isEditMode ? 'บันทึกการแก้ไขคำร้องแล้ว' : 'ส่งคำร้องเรียบร้อยแล้ว',
                 style: GoogleFonts.sarabun(fontSize: 22, fontWeight: FontWeight.w800, color: kRsOnSurface, letterSpacing: -0.2),
               ),
               const SizedBox(height: 8),
@@ -296,7 +349,10 @@ class _RepairComplaintScreenState extends State<RepairComplaintScreen> {
         backgroundColor: kRsSurface,
         body: Column(
           children: [
-            const ComplaintAppBar(),
+            ComplaintAppBar(
+              title: _isEditMode ? 'แก้ไขคำร้อง' : 'ยื่นคำร้องแจ้งแก้ไข',
+              subtitle: _isEditMode ? 'แก้ไขได้เพียงครั้งเดียวต่อคำร้อง 1 ใบ' : 'บอกเราว่าผลการซ่อมยังมีจุดไหนไม่เรียบร้อย',
+            ),
             Expanded(
               child: Stack(
                 children: [
@@ -305,14 +361,25 @@ class _RepairComplaintScreenState extends State<RepairComplaintScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        ComplaintReasonCard(
+                          selectedId: _selectedReasonId,
+                          onSelect: (id) => setState(() => _selectedReasonId = id),
+                        ),
+                        const SizedBox(height: 18),
                         ComplaintTextCard(controller: _textController),
                         const SizedBox(height: 18),
+                        // การ์ดอนุญาตเข้าห้องอยู่ในกรอบเดียวกับแนบรูป (ผ่าน allowEntry/onAllowEntrySelect)
+                        // ตรงกับหน้าแจ้งซ่อม (report_submit_screen.dart) ที่ 2 ส่วนนี้อยู่การ์ดเดียวกัน
                         ComplaintPhotoCard(
                           photos: _newPhotos,
+                          existingPhotoUrls: _existingPhotoUrls,
                           maxImages: _maxImages,
                           maxFileMb: _maxFileMb,
                           onAddTap: _showImageSourceSheet,
                           onRemove: _removeNewPhoto,
+                          onRemoveExisting: _removeExistingPhoto,
+                          allowEntry: _allowEntry,
+                          onAllowEntrySelect: (value) => setState(() => _allowEntry = value),
                         ),
                       ],
                     ),
@@ -321,7 +388,12 @@ class _RepairComplaintScreenState extends State<RepairComplaintScreen> {
                     left: 0,
                     right: 0,
                     bottom: 0,
-                    child: ComplaintBottomBar(isSubmitting: _isSubmitting, onSubmit: _handleSubmit),
+                    child: ComplaintBottomBar(
+                      isSubmitting: _isSubmitting,
+                      onSubmit: _handleSubmit,
+                      label: _isEditMode ? 'บันทึกการแก้ไข' : 'ส่งคำร้อง',
+                      submittingLabel: _isEditMode ? 'กำลังบันทึก...' : 'กำลังส่ง...',
+                    ),
                   ),
                 ],
               ),

@@ -1,4 +1,5 @@
 const pool = require('../libs/db_pool');
+const notification = require('./notification');
 
 module.exports = {
     getByRequestId: async (requestId) => {
@@ -73,12 +74,24 @@ module.exports = {
             var insertEvaluationSql =
                 "INSERT INTO repair_evaluation (request_id, rating, feedback) VALUES (?, ?, ?)";
             var insertResult = await conn.query(insertEvaluationSql, [requestId, rating, feedback]);
-            var evaluationId = insertResult.insertId;
+            // insertId ของ mariadb เป็น BigInt — แปลงเป็น Number ก่อนส่งกลับ (เหตุผลเดียวกับ createComplaint)
+            var evaluationId = Number(insertResult.insertId);
 
             var insertPhotoSql = "INSERT INTO repair_evaluation_photo (evaluation_id, photo_url) VALUES (?, ?)";
             for (const photoUrl of photoUrls) {
                 await conn.query(insertPhotoSql, [evaluationId, photoUrl]);
             }
+
+            // แจ้งเตือนเฉพาะตอนประเมินครั้งแรก (createEvaluation) ไม่ทำใน updateEvaluation เพราะการแก้ไขซ้ำ
+            // ไม่ควรเด้งแจ้งเตือนใหม่ทุกครั้ง (จะรกแผงแจ้งเตือนโดยไม่จำเป็น)
+            var contactRows = await conn.query(
+                "SELECT contact_name FROM repair_request WHERE request_id = ?",
+                [requestId]
+            );
+            await notification.createNotification(
+                conn, requestId, 'evaluated',
+                `${contactRows[0].contact_name} ประเมินผลงานซ่อมแล้ว (${rating} ดาว)`
+            );
 
             await conn.commit();
 

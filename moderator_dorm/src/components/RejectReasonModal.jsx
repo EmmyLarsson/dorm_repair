@@ -1,32 +1,54 @@
 // RejectReasonModal.jsx
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import BaseModal from './BaseModal';
 
 /**
  * RejectReasonModal - popup ให้กรอกเหตุผลก่อนปฏิเสธ/ยกเลิกงานซ่อม
  */
-const RejectReasonModal = ({ isOpen, caseCode, onClose, onConfirm }) => {
+const RejectReasonModal = ({
+  isOpen,
+  caseCode,
+  onClose,
+  onConfirm,
+  title = 'ระบุเหตุผลการปฏิเสธ',
+  placeholder = 'ระบุเหตุผลการปฏิเสธ/ยกเลิกงานซ่อม...',
+  note,
+}) => {
   const [reason, setReason] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // ล้างข้อความตอนหน้าต่างปิดเท่านั้น (ไม่ล้างตอนกดยืนยัน) — ถ้า onConfirm ล้มเหลวแล้วผู้เรียกไม่ปิดหน้าต่าง
+  // ข้อความที่พิมพ์ไว้จะยังอยู่ให้กดยืนยันซ้ำได้ ไม่ต้องพิมพ์ใหม่
+  useEffect(() => {
+    if (!isOpen) {
+      setReason('');
+    }
+  }, [isOpen]);
 
   function handleClose() {
     setReason('');
     onClose?.();
   }
 
-  function handleConfirm() {
-    if (!reason.trim()) {
+  // onConfirm อาจคืน Promise (จุดที่รอผล API ก่อนปิดหน้าต่าง) — รอให้จบก่อน และกันกดยืนยันซ้ำระหว่างรอ
+  async function handleConfirm() {
+    if (!reason.trim() || isSubmitting) {
       return;
     }
 
-    onConfirm?.(reason.trim());
-    setReason('');
+    setIsSubmitting(true);
+    try {
+      await onConfirm?.(reason.trim());
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
     <BaseModal
       isOpen={isOpen}
       onClose={handleClose}
-      title="ระบุเหตุผลการปฏิเสธ"
+      title={title}
       maxWidth="max-w-lg"
       footer={
         <div className="flex gap-3 ml-auto">
@@ -38,7 +60,7 @@ const RejectReasonModal = ({ isOpen, caseCode, onClose, onConfirm }) => {
           </button>
           <button
             onClick={handleConfirm}
-            disabled={!reason.trim()}
+            disabled={!reason.trim() || isSubmitting}
             className="h-11.5 px-6 rounded-full text-sm font-bold text-white bg-red-700 hover:brightness-110 flex items-center gap-2 disabled:opacity-50 disabled:pointer-events-none"
           >
             <span className="material-symbols-outlined text-lg">cancel</span>
@@ -58,10 +80,13 @@ const RejectReasonModal = ({ isOpen, caseCode, onClose, onConfirm }) => {
         <textarea
           value={reason}
           onChange={(e) => setReason(e.target.value)}
-          placeholder="ระบุเหตุผลการปฏิเสธ/ยกเลิกงานซ่อม..."
+          placeholder={placeholder}
+          maxLength={500}
           className="w-full min-h-30 px-4 py-3 border-[1.5px] border-slate-300 rounded-xl text-sm resize-none focus:outline-none focus:border-blue-800 focus:ring-4 focus:ring-blue-800/10"
         />
       </div>
+
+      {note && <p className="text-xs text-slate-500">{note}</p>}
     </BaseModal>
   );
 };

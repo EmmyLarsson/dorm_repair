@@ -1,5 +1,6 @@
 const pool = require('../libs/db_pool');
 const repairTimeline = require('./repair_timeline');
+const notification = require('./notification');
 
 const THAI_MONTHS = [
     'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
@@ -26,7 +27,175 @@ function formatAppointmentThai(appointmentDate) {
     return `${day} ${THAI_MONTHS[month - 1]} ${buddhistYear} ช่วง ${timeslotLabel(hour)}`;
 }
 
+const APPOINTMENT_SLOT_HOURS = [9, 13, 15]; // ชั่วโมงเริ่มของ 3 ช่วง (09-11, 13-15, 15-17)
+const MAX_QUEUE_PER_SLOT = 3; // จำกัด 3 คิวต่อ 1 ช่วงเวลาต่อวัน (9 คิว/วัน)
+const MAX_SEARCH_DAYS = 90;  // กันวนไม่รู้จบ เคสจริงไม่ควรเต็มขนาดนี้
+
+// ช่วงชั่วโมงของแต่ละช่วงเวลา ให้ตรงกับ timeslotLabel (<13 = 09-11, 13-14 = 13-15, >=15 = 15-17)
+// นับเป็นช่วงแทนการเทียบชั่วโมงเป๊ะๆ เผื่อ appointment_date ของเคสเก่าไม่ได้เก็บชั่วโมงเริ่มพอดี
+function slotHourRange(slotHour) {
+    if (slotHour < 13) return [0, 12];
+    if (slotHour < 15) return [13, 14];
+    return [15, 23];
+}
+
+// นับคิวที่จองช่วงเวลานี้แล้ว เฉพาะเคสที่ยังไม่ถูกปฏิเสธ/ยกเลิก (สถานะ 4) และไม่นับเคสของตัวเอง
+// (excludeRequestId) เพราะตอนเลื่อนนัด นัดเดิมของเคสเดียวกันไม่ควรมาแย่งที่ตัวเอง
+async function countSlotBookings(conn, dateOnly, slotHour, excludeRequestId) {
+    const [minHour, maxHour] = slotHourRange(slotHour);
+    const rows = await conn.query(
+        "SELECT COUNT(*) AS total FROM repair_request " +
+        "WHERE DATE(appointment_date) = ? AND HOUR(appointment_date) BETWEEN ? AND ? " +
+        "AND progress_status_id != 4 AND request_id != ?",
+        [dateOnly, minHour, maxHour, excludeRequestId ?? 0]
+    );
+    return Number(rows[0].total);
+}
+
+// เคสแก้ไข = เคสที่เคยถูกอนุมัติคำร้องอุทธรณ์อย่างน้อย 1 ครั้ง นัดหมายของเคสแก้ไขต้องได้ช่วงเวลาที่ไม่มีเคสอื่น
+// นัดเลย (เจ้าหน้าที่ต้องมีเวลาเต็มช่วงตรวจงานที่ถูกร้องเรียน) ต่างจากงานซ่อมทั่วไปที่รวมได้ 3 คิวต่อช่วง
+async function isRevisionCase(conn, requestId) {
+    const rows = await conn.query(
+        "SELECT COUNT(*) AS total FROM repair_complaint WHERE request_id = ? AND decision = 'approved'",
+        [requestId]
+    );
+    return Number(rows[0].total) > 0;
+}
+
+// หาคิวว่างถัดไปสำหรับจัดนัดหมายอัตโนมัติตอนอนุมัติคำร้อง — ไล่หาวันเริ่มจากวันนี้ (ห้ามย้อนหลัง)
+// ทีละช่วงเวลาตามลำดับ 09-11 → 13-15 → 15-17 ข้ามช่วงที่เต็มแล้ว (maxBookings คิว) และช่วงของวันนี้ที่เริ่มไปแล้ว
+// (ชั่วโมงเริ่ม <= ชั่วโมงปัจจุบัน) คืนค่า "YYYY-MM-DD HH:mm:ss" ให้ appointment_date ใช้ตรงๆ
+async function findNextAvailableAppointment(conn, excludeRequestId, maxBookings = MAX_QUEUE_PER_SLOT) {
+    const now = new Date();
+
+    for (let dayOffset = 0; dayOffset < MAX_SEARCH_DAYS; dayOffset++) {
+        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + dayOffset);
+        // ข้ามเสาร์-อาทิตย์เฉพาะตอนระบบจัดให้เอง เผื่อช่างไม่ว่าง — เจ้าหน้าที่เลือกวันหยุดเองได้เมื่อมีงานด่วน
+        // (วันหยุดนักขัตฤกษ์ระบบไม่รู้ เจ้าหน้าที่เลื่อนเอง)
+        if (d.getDay() === 0 || d.getDay() === 6) continue;
+        const dateOnly = d.getFullYear() + '-' +
+            String(d.getMonth() + 1).padStart(2, '0') + '-' +
+            String(d.getDate()).padStart(2, '0');
+
+        for (const hour of APPOINTMENT_SLOT_HOURS) {
+            if (dayOffset === 0 && hour <= now.getHours()) continue;
+
+            if (await countSlotBookings(conn, dateOnly, hour, excludeRequestId) < maxBookings) {
+                return `${dateOnly} ${String(hour).padStart(2, '0')}:00:00`;
+            }
+        }
+    }
+
+    return null; // แทบเป็นไปไม่ได้ในทางปฏิบัติ แต่กันไว้เผื่อ MAX_SEARCH_DAYS ไม่พอจริงๆ
+}
+
+// จัดนัดหมายอัตโนมัติตอนอนุมัติ เฉพาะเคสที่นักศึกษาอนุญาตให้เข้าห้อง (allow_entry) — เคสที่ไม่อนุญาต
+// ต้องนัดให้นักศึกษาอยู่ห้อง เจ้าหน้าที่จึงกำหนดวัน/ช่วงเวลาเอง ไม่เลือกช่างให้ (เจ้าหน้าที่เลือกทีหลัง)
+// รับ conn จากผู้เรียกให้อยู่ใน transaction เดียวกับการอนุมัติ คืนวันนัดที่จัดให้ หรือ null ถ้าไม่ได้จัด
+//
+// allowEntryOverride: ใช้ตอนอนุมัติ "คำร้องอุทธรณ์" ซึ่งมีค่า allow_entry เป็นของรอบอุทธรณ์นั้นเอง
+// (คอลัมน์แยกใน repair_complaint ไม่ใช่ repair_request.allow_entry ของเคสทั้งเคส) — ถ้าไม่ส่งมา (undefined)
+// ฟังก์ชันจะอ่านจาก repair_request.allow_entry เหมือนเดิมทุกประการ (พฤติกรรมเดิมตอนอนุมัติครั้งแรกไม่เปลี่ยน)
+async function autoScheduleIfAllowed(conn, requestId, allowEntryOverride) {
+    let allowEntry = allowEntryOverride;
+    if (allowEntry === undefined) {
+        const rows = await conn.query("SELECT allow_entry FROM repair_request WHERE request_id = ?", [requestId]);
+        allowEntry = rows[0] ? rows[0].allow_entry : null;
+    }
+    if (!allowEntry) return null;
+
+    const maxBookings = (await isRevisionCase(conn, requestId)) ? 1 : MAX_QUEUE_PER_SLOT;
+    const appointmentDate = await findNextAvailableAppointment(conn, requestId, maxBookings);
+    if (!appointmentDate) return null;
+
+    await conn.query("UPDATE repair_request SET appointment_date = ? WHERE request_id = ?", [appointmentDate, requestId]);
+    await repairTimeline.insertTimelineStep(
+        conn, requestId, 'appointment',
+        `ระบบจัดคิวนัดหมายซ่อมให้อัตโนมัติ ${formatAppointmentThai(appointmentDate)}`
+    );
+
+    return appointmentDate;
+}
+
+// แปลงชั่วโมงเริ่มของนัดหมายเป็น key ช่วงเวลา ตรงกับ dropdown/มินิปฏิทินฝั่ง moderator_dorm
+// (ตรงข้ามกับ slotHourRange ด้านบนที่แปลง key เป็นช่วงชั่วโมง)
+function hourToSlotKey(hour) {
+    if (hour < 13) return '09-11';
+    if (hour < 15) return '13-15';
+    return '15-17';
+}
+
+// สรุปจำนวนคิวที่จองแล้วต่อวัน/ช่วงเวลา สำหรับมินิปฏิทินตอนเจ้าหน้าที่นัดหมายเอง (กรณีเคสไม่อนุญาต
+// เข้าห้อง/เคสเลื่อนนัด) — คืนค่าเป็น object แยกตามวันที่ แต่ละวันมี 3 ช่วงเวลา พร้อมรายชื่อเคสที่จองไว้
+// isRevisionLocked = true หมายถึงมีเคสแก้ไข (ผ่านคำร้องอุทธรณ์ที่อนุมัติแล้ว) ครองช่วงนี้อยู่คนเดียว
+// (กติกาเดียวกับ isRevisionCase/autoScheduleIfAllowed — เคสแก้ไขต้องได้ช่วงเวลาเต็มๆ ไม่แชร์กับเคสอื่น)
+async function getSlotAvailability(startDate, days, excludeRequestId) {
+    let conn;
+    let result;
+
+    try {
+        conn = await pool.getConnection();
+
+        const endDate = new Date(startDate + 'T00:00:00');
+        endDate.setDate(endDate.getDate() + days - 1);
+        const endDateStr = endDate.toISOString().slice(0, 10);
+
+        const rows = await conn.query(
+            "SELECT " +
+            "  rr.request_id, " +
+            "  rr.case_code, " +
+            "  DATE_FORMAT(rr.appointment_date, '%Y-%m-%d') AS booking_date, " +
+            "  HOUR(rr.appointment_date) AS booking_hour, " +
+            "  GROUP_CONCAT(DISTINCT rt.repair_type_name SEPARATOR ', ') AS type_names, " +
+            "  EXISTS(SELECT 1 FROM repair_complaint rc WHERE rc.request_id = rr.request_id AND rc.decision = 'approved') AS is_revision " +
+            "FROM repair_request rr " +
+            "LEFT JOIN repair_request_detail rrd ON rr.request_id = rrd.request_id " +
+            "LEFT JOIN repair_type rt ON rrd.repair_type_id = rt.repair_type_id " +
+            "WHERE rr.appointment_date IS NOT NULL " +
+            "AND DATE(rr.appointment_date) BETWEEN ? AND ? " +
+            "AND rr.progress_status_id != 4 " +
+            "AND rr.request_id != ? " +
+            "GROUP BY rr.request_id",
+            [startDate, endDateStr, excludeRequestId ?? 0]
+        );
+
+        // ตั้งโครงว่างไว้ก่อนทุกวัน/ทุกช่วง เพื่อให้ frontend ไม่ต้องเช็ค undefined เอง
+        const days_ = {};
+        for (let i = 0; i < days; i++) {
+            const d = new Date(startDate + 'T00:00:00');
+            d.setDate(d.getDate() + i);
+            const dateStr = d.toISOString().slice(0, 10);
+            days_[dateStr] = {
+                '09-11': { count: 0, isRevisionLocked: false, cases: [] },
+                '13-15': { count: 0, isRevisionLocked: false, cases: [] },
+                '15-17': { count: 0, isRevisionLocked: false, cases: [] },
+            };
+        }
+
+        for (const row of rows) {
+            const bucket = days_[row.booking_date];
+            if (!bucket) continue; // นอกช่วงที่ขอ (กันเผื่อ timezone เพี้ยน)
+            const slotKey = hourToSlotKey(row.booking_hour);
+            const slot = bucket[slotKey];
+            slot.count += 1;
+            if (row.is_revision) slot.isRevisionLocked = true;
+            slot.cases.push({ caseCode: row.case_code, typeNames: row.type_names || '' });
+        }
+
+        result = { isError: false, data: days_, errorMessage: "" };
+    } catch (error) {
+        result = { isError: true, data: "", errorMessage: error.message };
+    } finally {
+        if (conn) conn.release();
+        return result;
+    }
+}
+
 module.exports = {
+    autoScheduleIfAllowed,
+    findNextAvailableAppointment,
+    getSlotAvailability,
+
     getAllRepairRequest : async () => {
         let conn;
         let result;
@@ -40,6 +209,10 @@ module.exports = {
           "  rr.contact_name AS student_name, " +
           "  rr.target_room AS room_number, " +
           "  GROUP_CONCAT(rt.repair_type_name SEPARATOR ',') AS type_names, " +
+          // เหตุผลเดียวกับใน getRepairRequestById — openManageModal ฝั่ง moderator ใช้ค่าจาก list นี้
+          // (findCase) เป็นหลัก ไม่ใช่จาก getRepairRequestById เสมอไป (เรียกแค่ตอนมีนัดหมายแล้วเท่านั้น)
+          // ต้องมี id คู่กับชื่อตรงนี้ด้วยถึงจะสร้างการ์ดรายงานผลซ่อมแยกรายรายการได้ทุกกรณี
+          "  JSON_ARRAYAGG(JSON_OBJECT('repair_type_id', rt.repair_type_id, 'repair_type_name', rt.repair_type_name)) AS repair_types_json, " +
           "  rr.description, " +
           "  ps.progress_status_id, " +
           "  ps.progress_status_name, " +
@@ -47,9 +220,7 @@ module.exports = {
           "  CONCAT(tp.firstname, ' ', tp.lastname) AS technician_name, " +
           "  DATE_FORMAT(rr.appointment_date, '%Y-%m-%d %H:%i:%s') AS appointment_date, " +
           "  DATE_FORMAT(rr.report_date, '%Y-%m-%d %H:%i:%s') AS report_date, " +
-          "  rr.progress_detail_des, " +
-          "  EXISTS(SELECT 1 FROM repair_complaint rc WHERE rc.request_id = rr.request_id " +
-          "    AND rc.decision = 'pending') AS has_pending_complaint " +
+          "  rr.max_complaints " +
           "FROM repair_request rr " +
           "LEFT JOIN repair_request_detail rrd ON rr.request_id = rrd.request_id " +
           "LEFT JOIN repair_type rt ON rrd.repair_type_id = rt.repair_type_id " +
@@ -69,7 +240,7 @@ module.exports = {
           "  tp.lastname, " +
           "  rr.appointment_date, " +
           "  rr.report_date, " +
-          "  rr.progress_detail_des " +
+          "  rr.max_complaints " +
           "ORDER BY rr.report_date DESC";
 
             var rows = await conn.query(sql);
@@ -139,7 +310,11 @@ module.exports = {
           "  rr.contact_phone, " +
           "  rr.target_room AS room_number, " +
           "  rr.allow_entry, " +
+          "  rr.max_complaints, " +
           "  GROUP_CONCAT(rt.repair_type_name SEPARATOR ',') AS type_names, " +
+          // repair_types_json ให้ id คู่กับชื่อ (type_names ข้างบนมีแค่ชื่อรวมเป็น string เดียว หา id ไม่ได้)
+          // ฝั่ง moderator ต้องใช้ id นี้แยกการ์ดรายงานผลซ่อมต่อรายการงานซ่อม — เพิ่มควบคู่ ไม่ลบ type_names เดิม
+          "  JSON_ARRAYAGG(JSON_OBJECT('repair_type_id', rt.repair_type_id, 'repair_type_name', rt.repair_type_name)) AS repair_types_json, " +
           "  rr.description, " +
           "  ps.progress_status_id, " +
           "  ps.progress_status_name, " +
@@ -148,8 +323,7 @@ module.exports = {
           "  tp.phone AS technician_phone, " +
           "  DATE_FORMAT(rr.appointment_date, '%Y-%m-%d %H:%i:%s') AS appointment_date, " +
           "  DATE_FORMAT(rr.finish_date, '%Y-%m-%d %H:%i:%s') AS finish_date, " +
-          "  DATE_FORMAT(rr.report_date, '%Y-%m-%d %H:%i:%s') AS report_date, " +
-          "  rr.progress_detail_des " +
+          "  DATE_FORMAT(rr.report_date, '%Y-%m-%d %H:%i:%s') AS report_date " +
           "FROM repair_request rr " +
           "LEFT JOIN repair_request_detail rrd ON rr.request_id = rrd.request_id " +
           "LEFT JOIN repair_type rt ON rrd.repair_type_id = rt.repair_type_id " +
@@ -164,6 +338,7 @@ module.exports = {
           "  rr.contact_phone, " +
           "  rr.target_room, " +
           "  rr.allow_entry, " +
+          "  rr.max_complaints, " +
           "  rr.description, " +
           "  ps.progress_status_id, " +
           "  ps.progress_status_name, " +
@@ -173,8 +348,7 @@ module.exports = {
           "  tp.phone, " +
           "  rr.appointment_date, " +
           "  rr.finish_date, " +
-          "  rr.report_date, " +
-          "  rr.progress_detail_des";
+          "  rr.report_date";
 
             var rows = await conn.query(sql, [requestId]);
 
@@ -346,6 +520,7 @@ module.exports = {
             );
 
             await repairTimeline.insertTimelineStep(conn, requestId, 'submitted', null);
+            await notification.createNotification(conn, requestId, 'new_request', `${name} แจ้งซ่อมใหม่`);
 
             for (const repairTypeId of repairTypeIds) {
                 var detailSql =
@@ -475,13 +650,37 @@ module.exports = {
 
             await conn.query(sql, [accountId, requestId]);
 
-            await repairTimeline.insertTimelineStep(conn, requestId, 'approved', null);
+            // ถ้านักศึกษาไม่อนุญาตให้ช่างเข้าห้อง (allow_entry=0) autoScheduleIfAllowed ด้านล่างจะไม่จัดคิวให้
+            // เอง — ต้องบอกนักศึกษาว่าให้ติดต่อใคร จึงดึงชื่อ+เบอร์เจ้าหน้าที่ที่อนุมัติ (accountId) มาใส่ใน
+            // การ์ด timeline 'approved' แทนค่าว่าง (ใช้วิธีฝังข้อความใน step_detail แบบเดียวกับจุดอื่นในระบบ
+            // ไม่ต้องเพิ่มคอลัมน์/endpoint ใหม่)
+            var caseRows = await conn.query("SELECT allow_entry FROM repair_request WHERE request_id = ?", [requestId]);
+            var approvedDetail = null;
+            if (!caseRows[0] || !caseRows[0].allow_entry) {
+                var contactRows = await conn.query(
+                    "SELECT p.firstname, p.lastname, p.phone " +
+                    "FROM account a " +
+                    "JOIN person p ON p.person_id = a.person_id " +
+                    "WHERE a.account_id = ?",
+                    [accountId]
+                );
+                if (contactRows[0]) {
+                    approvedDetail =
+                        `คุณไม่อนุญาตให้ช่างเข้าห้อง กรุณาติดต่อเจ้าหน้าที่ ${contactRows[0].firstname} ${contactRows[0].lastname} ` +
+                        `เบอร์ ${contactRows[0].phone} เพื่อนัดหมายวันที่สะดวก`;
+                }
+            }
+
+            await repairTimeline.insertTimelineStep(conn, requestId, 'approved', approvedDetail);
+
+            // อยู่ใน transaction เดียวกับการอนุมัติ ถ้าจัดนัดพังจะ rollback ทั้งหมด ไม่เหลือเคสที่อนุมัติครึ่งๆ กลางๆ
+            var appointmentDate = await autoScheduleIfAllowed(conn, requestId);
 
             await conn.commit();
 
             result = {
                 isError: false,
-                data: "",
+                data: { appointmentDate },
                 errorMessage: ""
             };
         } catch (error) {
@@ -577,6 +776,83 @@ module.exports = {
                 [requestId]
             );
             var previous = previousRows[0] || { technician_id: null, appointment_date: null };
+
+            // นัดหมายเดิมที่ค้างอยู่ในเคสอาจเป็นของ "รอบก่อน" (ก่อนคำร้องอุทธรณ์ถูกอนุมัติ) — ถ้ามี step
+            // complaint_approved ใหม่กว่านัดหมายล่าสุดใน timeline แปลว่านี่คือการนัดหมายรอบแก้ไขครั้งแรก
+            // ไม่ใช่การเลื่อนนัดเดิม จึงต้องนับเป็น "ได้รับวันนัดหมาย" ใหม่ ไม่ใช่ "เลื่อนกำหนดการ"
+            var latestStepRows = await conn.query(
+                "SELECT " +
+                "  (SELECT MAX(timeline_id) FROM repair_timeline WHERE request_id = ? AND step_code = 'appointment') AS last_appointment_id, " +
+                "  (SELECT MAX(timeline_id) FROM repair_timeline WHERE request_id = ? AND step_code = 'complaint_approved') AS last_approved_id",
+                [requestId, requestId]
+            );
+            var lastAppointmentId = latestStepRows[0].last_appointment_id;
+            var lastApprovedId = latestStepRows[0].last_approved_id;
+            if (lastApprovedId && (!lastAppointmentId || lastApprovedId > lastAppointmentId)) {
+                previous = { technician_id: previous.technician_id, appointment_date: null };
+            }
+
+            // ห้ามนัดหมายย้อนหลัง — ต้องไม่ก่อนวันนี้ และไม่ก่อนวันที่เจ้าหน้าที่อนุมัติ (คำร้องแจ้งซ่อม
+            // ครั้งแรก หรือคำร้องอุทธรณ์รอบแก้ไข แล้วแต่ว่าเคสนี้เพิ่งผ่านอนุมัติแบบไหนมาล่าสุด)
+            // เช็คเฉพาะตอนวันนัด "ถูกเปลี่ยน" — ถ้าบันทึกซ้ำโดยวันเดิม (เช่น เบิกครุภัณฑ์เพิ่มหลังซ่อมเสร็จ ซึ่งวันนัด
+            // เดิมผ่านไปแล้ว) ต้องไม่ถูกปฏิเสธว่านัดย้อนหลัง
+            if (appointmentDate && appointmentDate !== previous.appointment_date) {
+                var appointmentDateOnly = appointmentDate.slice(0, 10);
+                // ใช้วันที่ตามเวลาเครื่อง (ไม่ใช่ UTC จาก toISOString) ให้ตรงกับฝั่งหน้าจอ
+                var nowLocal = new Date();
+                var todayOnly = nowLocal.getFullYear() + '-' +
+                    String(nowLocal.getMonth() + 1).padStart(2, '0') + '-' +
+                    String(nowLocal.getDate()).padStart(2, '0');
+
+                var approvedComplaintRows = await conn.query(
+                    "SELECT DATE_FORMAT(decided_at, '%Y-%m-%d') AS d FROM repair_complaint " +
+                    "WHERE request_id = ? AND decision = 'approved' ORDER BY decided_at DESC LIMIT 1",
+                    [requestId]
+                );
+                var approvedTimelineRows = await conn.query(
+                    "SELECT DATE_FORMAT(event_date, '%Y-%m-%d') AS d FROM repair_timeline " +
+                    "WHERE request_id = ? AND step_code = 'approved' ORDER BY event_date DESC LIMIT 1",
+                    [requestId]
+                );
+                var approvalFloor = approvedComplaintRows[0]?.d || approvedTimelineRows[0]?.d || null;
+                var effectiveFloor = (approvalFloor && approvalFloor > todayOnly) ? approvalFloor : todayOnly;
+
+                if (appointmentDateOnly < effectiveFloor) {
+                    await conn.rollback();
+                    result = {
+                        isError: true,
+                        data: "",
+                        errorMessage: `นัดหมายวันซ่อมย้อนหลังไม่ได้ (เลือกได้ตั้งแต่วันที่ ${effectiveFloor} เป็นต้นไป)`
+                    };
+                    return;
+                }
+            }
+
+            // จำกัด 3 คิวต่อช่วงเวลาต่อวัน — เช็คเฉพาะตอนวัน/ช่วงถูกเปลี่ยน (เหตุผลเดียวกับเช็คย้อนหลังด้านบน)
+            // เจ้าหน้าที่กำหนดเองได้เฉพาะเคสที่นักศึกษาไม่อนุญาตเข้าห้อง ส่วนเคสที่อนุญาตระบบจัดคิวให้เอง
+            if (appointmentDate && appointmentDate !== previous.appointment_date) {
+                var slotHour = Number(appointmentDate.slice(11, 13));
+                var booked = await countSlotBookings(conn, appointmentDate.slice(0, 10), slotHour, requestId);
+                var isRevision = await isRevisionCase(conn, requestId);
+                if (isRevision && booked >= 1) {
+                    await conn.rollback();
+                    result = {
+                        isError: true,
+                        data: "",
+                        errorMessage: "เคสแก้ไขต้องใช้ช่วงเวลาที่ไม่มีนัดหมายอื่น กรุณาเลือกวัน/ช่วงเวลาอื่น"
+                    };
+                    return;
+                }
+                if (booked >= MAX_QUEUE_PER_SLOT) {
+                    await conn.rollback();
+                    result = {
+                        isError: true,
+                        data: "",
+                        errorMessage: "ช่วงเวลานี้เต็มแล้ว (3/3 คิว) กรุณาเลือกวัน/ช่วงเวลาอื่น"
+                    };
+                    return;
+                }
+            }
 
             var oldUsageRows = await conn.query(
                 "SELECT equipment_id, quantity_used FROM repair_request_equipment WHERE request_id = ?",
@@ -751,16 +1027,10 @@ module.exports = {
 
             await conn.query(sql, [requestId]);
 
-            // เก็บ snapshot ข้อความรายงาน ณ ตอนปิดงานรอบนี้ไว้ใน step_detail — เพราะ progress_detail_des
-            // เป็นแค่ "ค่าปัจจุบันล่าสุด" ค่าเดียว ถ้าปิดงานหลายรอบ (เช่น หลังอนุมัติคำร้องแล้วซ่อมรอบใหม่)
-            // รายงานรอบก่อนจะถูกเขียนทับ ทำให้นักศึกษาไม่เห็นประวัติว่าแต่ละรอบซ่อมว่าอะไรบ้าง
-            var reportRows = await conn.query(
-                "SELECT progress_detail_des FROM repair_request WHERE request_id = ?",
-                [requestId]
-            );
-            var reportSnapshot = reportRows[0]?.progress_detail_des || null;
-
-            await repairTimeline.insertTimelineStep(conn, requestId, 'completed', reportSnapshot);
+            // ของเดิม snapshot ข้อความจาก progress_detail_des (คอลัมน์รายงานรวมก้อนเดียว) มาเก็บไว้ใน
+            // step_detail ตรงนี้ด้วย — ตอนนี้คอลัมน์นั้นถูกถอดออกจากระบบแล้ว (ย้ายไปเก็บรายงานแยกรายรายการ
+            // ที่ repair_completion_item ซึ่งมีประวัติของตัวเองอยู่แล้วในตัว ไม่ต้อง snapshot ซ้ำอีกชั้น)
+            await repairTimeline.insertTimelineStep(conn, requestId, 'completed', null);
 
             await conn.commit();
 
@@ -799,7 +1069,7 @@ module.exports = {
             await conn.beginTransaction();
 
             var statusRows = await conn.query(
-                "SELECT progress_status_id FROM repair_request WHERE request_id = ?",
+                "SELECT progress_status_id, contact_name FROM repair_request WHERE request_id = ?",
                 [requestId]
             );
 
@@ -819,6 +1089,7 @@ module.exports = {
             );
 
             await repairTimeline.insertTimelineStep(conn, requestId, 'accepted', null);
+            await notification.createNotification(conn, requestId, 'accepted', `${statusRows[0].contact_name} กดยอมรับผลการซ่อมแล้ว`);
 
             await conn.commit();
 
@@ -845,19 +1116,55 @@ module.exports = {
         }
     },
 
-    saveRepairReport: async (requestId, reportText) => {
+    // นักศึกษากด "ไม่ยอมรับ" ผลการซ่อม — ปิดเคสเป็น progress_status_id = 8 "ซ่อมไม่สำเร็จ" คู่กับ acceptRepairCompletion
+    // ทำได้เฉพาะสถานะ 3 (รอนักศึกษาตัดสิน) และ "ยื่นคำร้องครบสิทธิ์แล้ว" เท่านั้น — ถ้ายังยื่นได้อีกต้องใช้สิทธิ์ยื่น
+    // คำร้องก่อน ไม่ให้ปิดเคสเป็นไม่สำเร็จข้ามขั้นอุทธรณ์ (เช็คที่ backend ซ้ำจากที่แอปซ่อนปุ่ม)
+    declineRepairCompletion: async (requestId, reason) => {
         let conn;
         let result;
 
         try {
             conn = await pool.getConnection();
+            await conn.beginTransaction();
 
-            var sql =
-                "UPDATE repair_request " +
-                "SET progress_detail_des = ? " +
-                "WHERE request_id = ?";
+            var caseRows = await conn.query(
+                "SELECT progress_status_id, max_complaints, contact_name FROM repair_request WHERE request_id = ? FOR UPDATE",
+                [requestId]
+            );
 
-            await conn.query(sql, [reportText, requestId]);
+            if (!caseRows[0] || caseRows[0].progress_status_id !== 3) {
+                await conn.rollback();
+                result = {
+                    isError: true,
+                    data: "",
+                    errorMessage: "เคสนี้ยังไม่อยู่ในสถานะที่ตัดสินได้"
+                };
+                return;
+            }
+
+            var filedRows = await conn.query(
+                "SELECT COUNT(*) AS total FROM repair_complaint WHERE request_id = ?",
+                [requestId]
+            );
+            if (Number(filedRows[0].total) < Number(caseRows[0].max_complaints)) {
+                await conn.rollback();
+                result = {
+                    isError: true,
+                    data: "",
+                    errorMessage: "ยังยื่นคำร้องได้อีก กรุณายื่นคำร้องแจ้งแก้ไขก่อน ไม่ยอมรับผลซ่อมได้เมื่อใช้สิทธิ์ยื่นครบแล้ว"
+                };
+                return;
+            }
+
+            await conn.query(
+                "UPDATE repair_request SET progress_status_id = 8, finish_date = NOW() WHERE request_id = ?",
+                [requestId]
+            );
+
+            await repairTimeline.insertTimelineStep(conn, requestId, 'declined', reason);
+            await notification.createNotification(conn, requestId, 'declined', `${caseRows[0].contact_name} ไม่ยอมรับผลการซ่อม`);
+
+            await conn.commit();
 
             result = {
                 isError: false,
@@ -865,6 +1172,10 @@ module.exports = {
                 errorMessage: ""
             };
         } catch (error) {
+            if (conn) {
+                await conn.rollback();
+            }
+
             result = {
                 isError: true,
                 data: "",

@@ -1,13 +1,18 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { AnimatePresence } from 'framer-motion';
 import BaseModal from '../components/BaseModal';
+import PhotoLightbox from '../components/PhotoLightbox';
 import { InfoRow } from '../components/ui/InfoRow';
 import StatusPill from '../components/StatusPill';
 import RepairCard from '../components/RepairCard.jsx';
 import RepairDetailModal from '../components/RepairDetailModal';
 import RejectReasonModal from '../components/RejectReasonModal';
 import EquipmentPickerModal from '../components/EquipmentPickerModal';
+import CompletionItemReportCard from '../components/CompletionItemReportCard';
 import { AppAPI } from '../utils/appApi';
 import { photoFullUrl } from '../utils/photoUtil';
+import { appointmentToastLabel } from '../utils/appointmentLabel';
 import { RepairRequestModel } from '../models/repairRequestModel';
 import { InventoryModel } from '../models/inventoryModel';
 
@@ -24,6 +29,7 @@ function mapRepairRequestRow(row) {
     roomNumber: model.roomNumber,
     allowEntry: model.allowEntry,
     typeNames: model.typeNames,
+    repairTypes: model.repairTypes,
     description: model.description,
     reportDate: model.getRepairRequestDateLabel(),
     statusId: model.statusId,
@@ -32,8 +38,7 @@ function mapRepairRequestRow(row) {
     technicianName: model.technicianName,
     appointmentDate: model.appointmentDate,
     appointmentDateLabel: model.getAppointmentDateLabel(),
-    repairReport: model.repairReport,
-    hasPendingComplaint: model.hasPendingComplaint,
+    maxComplaints: model.maxComplaints,
   };
 }
 
@@ -91,7 +96,6 @@ async function getRepairRequestDetail(requestId) {
     technicianName: model.technicianName,
     appointmentDate: model.appointmentDate,
     reportDate: model.getRepairRequestDateLabel(),
-    repairReport: model.repairReport,
   };
 }
 
@@ -104,6 +108,26 @@ async function getRepairTimeline(requestId) {
     eventDetail: row.event_detail,
     eventDate: row.event_date,
   }));
+}
+
+// ผลประเมินงานซ่อมของนักศึกษา (ดาว+ข้อความ+รูป) — คืน null ถ้ายังไม่ได้ประเมิน (เคสยังไม่ถึงสถานะ 6 หรือ
+// ยังไม่กดประเมิน) ใช้ endpoint เดิมที่มีอยู่แล้ว (นักศึกษาเรียกใช้ตอนกดประเมิน) แต่ก่อนหน้านี้ฝั่งเจ้าหน้าที่
+// ไม่เคยเรียกเลย แท็บ "ผลการประเมิน" จึงเป็นข้อความตายตัวมาตลอด
+async function getEvaluation(requestId) {
+  const response = await AppAPI.get(`/repair_request/${requestId}/evaluation`);
+  const json = await response.json();
+
+  if (json.isError || !json.data) return null;
+
+  return {
+    rating: json.data.rating,
+    feedback: json.data.feedback,
+    evaluatedAt: json.data.evaluated_at,
+    photos: (Array.isArray(json.data.photos) ? json.data.photos : []).map((p) => ({
+      photoId: p.evaluation_photo_id,
+      photoUrl: p.photo_url,
+    })),
+  };
 }
 
 async function cancelAppointment(requestId) {
@@ -181,24 +205,46 @@ async function completeRepairRequest(requestId) {
   return response.json();
 }
 
-async function saveRepairReport(requestId, reportText, photoFiles) {
-  const response = await AppAPI.postFormData(`/repair_request/${requestId}/report`, {
-    files: photoFiles,
-    fieldName: 'photos',
-    fields: { report_text: reportText || '' },
-  });
-
-  return response.json();
-}
-
-async function getCompletionPhotos(requestId) {
-  const response = await AppAPI.get(`/repair_request/${requestId}/completion_photos`);
+// รายงานผลซ่อมแยกตามรายการงานซ่อม (repair_type) ของเคส
+async function getCompletionItems(requestId) {
+  const response = await AppAPI.get(`/repair_request/${requestId}/completion_items`);
   const json = await response.json();
 
   return (Array.isArray(json.data) ? json.data : []).map((row) => ({
-    photoId: row.completion_photo_id,
-    photoUrl: row.photo_url,
+    completionItemId: row.completion_item_id,
+    repairTypeId: row.repair_type_id,
+    repairTypeName: row.repair_type_name,
+    // 0 = รายงานการซ่อม (ซ่อมรอบแรก), 1-2 = รายงานการแก้ไขครั้งที่ 1-2 (อุทธรณ์ได้สูงสุด 2 รอบ)
+    revisionRound: row.revision_round ?? 0,
+    reportText: row.report_text || '',
+    photos: (Array.isArray(row.photos) ? row.photos : []).map((p) => ({
+      photoId: p.completion_item_photo_id,
+      photoUrl: p.photo_url,
+    })),
   }));
+}
+
+// ชื่อเมนูใหญ่ของแต่ละรอบ: 0 = "ซ่อม" ส่วน 1-2 = "แก้ไขครั้งที่ N"
+function roundLabel(round) {
+  return round === 0 ? 'ซ่อม' : `แก้ไขครั้งที่ ${round}`;
+}
+function roundReportTitle(round) {
+  return round === 0 ? 'รายงานการซ่อม' : `รายงานการแก้ไขครั้งที่ ${round}`;
+}
+
+
+// บันทึกรายงาน+รูปของ "1 รายการงานซ่อม" — เจ้าหน้าที่กด "บันทึก" ทีละการ์ด
+async function saveCompletionItemReport(requestId, repairTypeId, reportText, existingPhotoUrls, newPhotoFiles) {
+  const response = await AppAPI.postFormData(`/repair_request/${requestId}/completion_items/${repairTypeId}/report`, {
+    files: newPhotoFiles,
+    fieldName: 'photos',
+    fields: {
+      report_text: reportText || '',
+      existing_photo_urls: JSON.stringify(existingPhotoUrls || []),
+    },
+  });
+
+  return response.json();
 }
 
 async function getComplaints(requestId) {
@@ -208,8 +254,16 @@ async function getComplaints(requestId) {
   return (Array.isArray(json.data) ? json.data : []).map((row) => ({
     complaintId: row.complaint_id,
     complaintText: row.complaint_text,
+    // เคสเก่าก่อนมีฟีเจอร์นี้จะเป็น null (LEFT JOIN ฝั่ง backend กับตาราง complaint_reason)
+    reasonCategoryName: row.complaint_reason_name,
+    // เคสเก่าก่อนมีฟีเจอร์นี้เป็น null (ไม่รู้ค่า) ต่างจาก false (เลือก "ไม่อนุญาต" จริงๆ)
+    allowEntry: row.allow_entry === null ? null : row.allow_entry === 1,
     decision: row.decision,
     filedAt: row.filed_at,
+    decidedAt: row.decided_at,
+    // มีค่า = นักศึกษาแก้ไขคำร้องนี้แล้ว 1 ครั้ง (แก้ได้ครั้งเดียวและแก้ไม่ได้หลังเจ้าหน้าที่เริ่มตรวจ) — เจ้าหน้าที่
+    // ควรรู้ว่าข้อความที่อ่านอยู่เป็นฉบับที่ถูกแก้ไขแล้ว
+    editedAt: row.edited_at,
     photos: (Array.isArray(row.photos) ? row.photos : []).map((p) => ({
       photoId: p.complaint_photo_id,
       photoUrl: p.photo_url,
@@ -217,17 +271,148 @@ async function getComplaints(requestId) {
   }));
 }
 
-async function decideComplaint(complaintId, requestId, decision) {
-  const response = await AppAPI.post('/repair_request/complaint/decide', {
-    complaint_id: complaintId,
+// มินิปฏิทินเช็คคิวนัดหมาย (แท็บ "นัดหมาย") — excludeRequestId กันนัดเดิมของเคสที่กำลังแก้ไขอยู่มา
+// แย่งที่ตัวเอง (ตอนเลื่อนนัด/แก้ไขนัดของเคสเดียวกัน) ตรงกับ excludeRequestId ที่ backend ใช้ตอนจัดคิวอัตโนมัติ
+async function getSlotAvailability(startDate, days, excludeRequestId) {
+  const params = new URLSearchParams({ start: startDate, days: String(days) });
+  if (excludeRequestId) params.set('exclude_request_id', String(excludeRequestId));
+  const response = await AppAPI.get(`/repair_request/slot_availability?${params.toString()}`);
+  const json = await response.json();
+  return json.isError ? {} : json.data;
+}
+
+// แจ้ง backend ว่าเจ้าหน้าที่เปิดดูคำร้องแล้ว (ขึ้น timeline "กำลังตรวจสอบ" ให้นักศึกษา) — ไม่บล็อก UI ถ้าล้มเหลว
+async function markComplaintReviewing(requestId) {
+  try {
+    await AppAPI.post('/repair_request/complaint/reviewing', { request_id: requestId });
+  } catch (e) {
+    // เงียบไว้ได้ เพราะแค่การ์ดแจ้งความคืบหน้า ไม่กระทบการตัดสินใจคำร้อง
+  }
+}
+
+// ปรับจำนวนครั้งที่นักศึกษายื่นอุทธรณ์ได้ของ "เคสนี้" (backend ตรวจช่วง 1-5 และกติกาเคสซ้ำอีกชั้น)
+const MIN_COMPLAINT_LIMIT = 1;
+const MAX_COMPLAINT_LIMIT = 5;
+
+async function updateComplaintLimit(requestId, maxComplaints) {
+  const response = await AppAPI.post('/repair_request/complaint/limit', {
     request_id: requestId,
-    decision,
+    max_complaints: maxComplaints,
   });
 
   return response.json();
 }
 
+async function decideComplaint(complaintId, requestId, decision, reason) {
+  const response = await AppAPI.post('/repair_request/complaint/decide', {
+    complaint_id: complaintId,
+    request_id: requestId,
+    decision,
+    reason: reason || '',
+  });
+
+  return response.json();
+}
+
+const SLOT_DEFS = [
+  { key: '09-11', label: '09:00-11:00' },
+  { key: '13-15', label: '13:00-15:00' },
+  { key: '15-17', label: '15:00-17:00' },
+];
+
+const THAI_WEEKDAYS = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
+
+function addDaysToDateStr(dateStr, days) {
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+// มินิปฏิทินเช็คคิวนัดหมาย 7 วันล่วงหน้า × 3 ช่วงเวลา — คลิกช่องเพื่อเลือกวันที่/ช่วงเวลาแทนช่อง
+// input วันที่ + select ช่วงเวลาแบบเดิม (mockup 2 แบบเทียบกันแล้ว ผู้ใช้เลือกแบบนี้เพราะเห็นภาพรวม
+// หลายวันพร้อมกัน มีประโยชน์เวลาต้องหาวันว่างสำหรับเคสที่ไม่อนุญาตเข้าห้อง/เคสเลื่อนนัด)
+function SlotAvailabilityCalendar({ minDate, availability, selectedDate, selectedTimeslot, onPick }) {
+  if (!minDate) return null;
+
+  const days = Array.from({ length: 7 }, (_, i) => addDaysToDateStr(minDate, i));
+  const selectedSlot = availability?.[selectedDate]?.[selectedTimeslot];
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <label className="text-sm font-bold">นัดหมายวันซ่อม + ช่วงเวลา</label>
+        <div className="flex items-center gap-3 text-[11px] text-slate-500">
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-50 border-[1.5px] border-emerald-300 inline-block" />ว่าง</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-100 border-[1.5px] border-amber-300 inline-block" />จองบางส่วน</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-100 border-[1.5px] border-red-300 inline-block" />เต็ม</span>
+        </div>
+      </div>
+
+      <div className="grid gap-1.5" style={{ gridTemplateColumns: `84px repeat(${days.length}, 1fr)` }}>
+        <div />
+        {days.map((date) => {
+          const d = new Date(date + 'T00:00:00');
+          return (
+            <div key={date} className="text-center py-1">
+              <div className="text-[10px] text-slate-400 font-semibold">{THAI_WEEKDAYS[d.getDay()]}</div>
+              <div className="text-xs font-extrabold text-slate-700">{d.getDate()}/{d.getMonth() + 1}</div>
+            </div>
+          );
+        })}
+
+        {SLOT_DEFS.map((slotDef) => (
+          <React.Fragment key={slotDef.key}>
+            <div className="flex items-center text-[11px] font-bold text-slate-500 pr-1">{slotDef.label}</div>
+            {days.map((date) => {
+              const slot = availability?.[date]?.[slotDef.key] || { count: 0, isRevisionLocked: false, cases: [] };
+              const isFull = slot.isRevisionLocked || slot.count >= 3;
+              const isPartial = !isFull && slot.count > 0;
+              const isSelected = selectedDate === date && selectedTimeslot === slotDef.key;
+              const colorClasses = isFull
+                ? 'bg-red-100 border-red-300 text-red-800'
+                : isPartial
+                ? 'bg-amber-100 border-amber-300 text-amber-800'
+                : 'bg-emerald-50 border-emerald-300 text-emerald-800';
+              const caseTitle = slot.cases.length > 0
+                ? slot.cases.map((c) => `${c.caseCode}${c.typeNames ? ` (${c.typeNames})` : ''}`).join(', ')
+                : 'ว่าง';
+
+              return (
+                <button
+                  key={date + slotDef.key}
+                  type="button"
+                  title={caseTitle}
+                  onClick={() => onPick(date, slotDef.key)}
+                  className={`rounded-lg border-[1.5px] py-2 text-[11px] font-extrabold min-h-11 ${colorClasses} ${
+                    isSelected ? 'ring-2 ring-blue-700 ring-offset-1' : ''
+                  }`}
+                >
+                  {slot.isRevisionLocked ? 'เต็ม' : `${slot.count}/3`}
+                </button>
+              );
+            })}
+          </React.Fragment>
+        ))}
+      </div>
+
+      {selectedSlot && selectedSlot.cases.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 pt-1">
+          <span className="text-[11px] text-slate-500">เคสที่จองช่วงนี้แล้ว:</span>
+          {selectedSlot.cases.map((c) => (
+            <span key={c.caseCode} className="px-2 py-0.5 rounded-md bg-slate-100 text-[11px] font-bold text-slate-600">
+              {c.caseCode}{c.typeNames ? ` · ${c.typeNames}` : ''}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RepairManagementPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
+
   const [repairData, setRepairData] = useState([]);
   const [statusList, setStatusList] = useState([]);
   const [technicianList, setTechnicianList] = useState([]);
@@ -245,6 +430,8 @@ function RepairManagementPage() {
 
   // ปฏิเสธงานที่รอตรวจสอบ (กดจากปุ่มบนการ์ดโดยตรง)
   const [rejectingRepair, setRejectingRepair] = useState(null);
+  // คำร้องอุทธรณ์ที่กำลังจะปฏิเสธ (รอกรอกเหตุผลในหน้าต่างก่อนส่งจริง)
+  const [rejectingComplaintId, setRejectingComplaintId] = useState(null);
 
   // Modal 2: Manage (นัดหมาย/มอบหมายช่าง + รายงานผลการซ่อม — 2 แท็บในโมดัลเดียวกัน)
   const [manageRequestId, setManageRequestId] = useState(null);
@@ -254,16 +441,37 @@ function RepairManagementPage() {
   const [equipmentTypeList, setEquipmentTypeList] = useState([]);
   const [pendingEquipmentUsage, setPendingEquipmentUsage] = useState([]);
   const [manageFormSnapshot, setManageFormSnapshot] = useState(null);
+  // วันที่เร็วที่สุดที่นัดหมายได้ (YYYY-MM-DD) — ห้ามย้อนหลัง: ต้องไม่ก่อนวันนี้ และไม่ก่อนวันที่
+  // เจ้าหน้าที่อนุมัติล่าสุด (คำร้องแจ้งซ่อมครั้งแรก หรือคำร้องอุทธรณ์รอบแก้ไข)
+  const [manageMinDate, setManageMinDate] = useState('');
   const [isPickerOpen, setIsPickerOpen] = useState(false);
-  const [reportText, setReportText] = useState('');
-  const [existingReportPhotos, setExistingReportPhotos] = useState([]);
-  const [reportNewPhotos, setReportNewPhotos] = useState([]);
+  // มินิปฏิทินเช็คคิว: { "YYYY-MM-DD": { "09-11": {count, isRevisionLocked, cases}, "13-15": {...}, "15-17": {...} } }
+  const [slotAvailability, setSlotAvailability] = useState({});
+  // itemReports: [{ repairTypeId, repairTypeName, reportText, existingPhotos, newPhotos }]
+  // หนึ่งแถวต่อหนึ่งรายการงานซ่อมของเคส (มาจาก r.repairTypes) — แทนที่ reportText/photos ก้อนเดียวแบบเดิม
+  const [itemReports, setItemReports] = useState([]);
+  const [itemReportsSnapshot, setItemReportsSnapshot] = useState([]);
   const [caseComplaints, setCaseComplaints] = useState([]);
+  // ค่าที่กำลังปรับในตัวปรับ "จำนวนครั้งที่ยื่นอุทธรณ์ได้" ของเคสที่เปิดอยู่ (ยังไม่บันทึกจนกว่าจะกดปุ่ม)
+  const [limitDraft, setLimitDraft] = useState(2);
+  // เมนูใหญ่ที่กำลังดู: 0 = ซ่อม, 1-2 = แก้ไขครั้งที่ N (รอบปัจจุบัน = จำนวนคำร้องที่อนุมัติแล้ว)
+  // allCompletionItems = รายงานของทุกรอบ ไว้แสดงรอบเก่าแบบอ่านอย่างเดียว (itemReports ด้านบนคือช่องกรอกของ
+  // รอบปัจจุบันเท่านั้น) / manageTimeline = ไว้แสดงประวัตินัดหมายของรอบเก่า
+  const [manageRound, setManageRound] = useState(0);
+  const [allCompletionItems, setAllCompletionItems] = useState([]);
+  const [manageTimeline, setManageTimeline] = useState([]);
+  // popup ดูรูปแบบขยาย (mirror ของ RepairDetailModal.jsx) — { photos: [{photo_id, photo_url}], index }
+  const [lightboxState, setLightboxState] = useState(null);
 
   // Modal 3: Review
   const [reviewRequestId, setReviewRequestId] = useState(null);
   const [reviewTab, setReviewTab] = useState('report');
-  const [reviewCompletionPhotos, setReviewCompletionPhotos] = useState([]);
+  const [reviewCompletionItems, setReviewCompletionItems] = useState([]);
+  // ผลประเมินจริงของเคส (null = ยังไม่ได้ประเมิน) และเหตุผลไม่ยอมรับตอนสถานะ "ซ่อมไม่สำเร็จ" (8) —
+  // ทั้งคู่โผล่ในแท็บเดียวกัน ("ผลการประเมิน") แยกกันตามสถานะของเคส
+  const [reviewEvaluation, setReviewEvaluation] = useState(null);
+  const [reviewDeclineReason, setReviewDeclineReason] = useState(null);
+  const [reviewEditLocked, setReviewEditLocked] = useState(false);
 
   // ยกเลิกงานที่อยู่ระหว่างซ่อม
   const [cancelingRepair, setCancelingRepair] = useState(null);
@@ -319,6 +527,23 @@ function RepairManagementPage() {
     return () => window.clearInterval(intervalId);
   }, []);
 
+  // มาจากการคลิกแจ้งเตือนใน MainLayout (navigate มาพร้อม state.autoOpen) — เปิด modal ที่เกี่ยวข้องทันที
+  // เคลียร์ state ทิ้งหลังใช้ ไม่งั้นถ้าเจ้าหน้าที่กดย้อนกลับ/รีเฟรชหน้านี้ modal จะเด้งขึ้นมาเองซ้ำอีก
+  useEffect(() => {
+    const autoOpen = location.state?.autoOpen;
+    if (!autoOpen) return;
+
+    // openManageModal ต้องหาเคสจาก repairData ก่อน — ถ้ามาถึงหน้านี้ก่อน fetchAll โหลดเสร็จ
+    // (เช่นคลิกแจ้งเตือนจากหน้า home) ให้รอ effect นี้ทำงานใหม่ตอน repairData มาถึงแทนที่จะเงียบๆ ไม่เปิด
+    if (autoOpen.modal === 'manage' && !findCase(autoOpen.requestId)) return;
+
+    if (autoOpen.modal === 'inspect') setInspectRequestId(autoOpen.requestId);
+    else if (autoOpen.modal === 'manage') openManageModal(autoOpen.requestId);
+    else if (autoOpen.modal === 'review') openReviewModal(autoOpen.requestId, autoOpen.tab);
+
+    navigate(location.pathname, { replace: true, state: {} });
+  }, [location.state, repairData]);
+
   function findCase(requestId) {
     return repairData.find((r) => r.id === requestId);
   }
@@ -365,7 +590,12 @@ function RepairManagementPage() {
     }
 
     setInspectRequestId(null);
-    showToast(`อนุมัติ Case ${detail.caseCode} สำเร็จ — ย้ายไปสถานะ "อยู่ระหว่างซ่อม"`);
+    const autoAppointmentDate = response.data?.appointmentDate;
+    showToast(
+      autoAppointmentDate
+        ? `อนุมัติ Case ${detail.caseCode} สำเร็จ — ระบบจัดนัดหมายให้ ${appointmentToastLabel(autoAppointmentDate)}`
+        : `อนุมัติ Case ${detail.caseCode} สำเร็จ — ย้ายไปสถานะ "อยู่ระหว่างซ่อม"`,
+    );
     await fetchAll();
   }
 
@@ -374,12 +604,14 @@ function RepairManagementPage() {
 
     if (response.isError) {
       alert(response.errorMessage || 'ปฏิเสธไม่สำเร็จ');
-      return;
+      return false;
     }
 
     setInspectRequestId(null);
     showToast(`ปฏิเสธ Case ${detail.caseCode} เรียบร้อย`);
     await fetchAll();
+    // คืนผลให้ RejectReasonModal ปิดหน้าต่างเฉพาะเมื่อสำเร็จ (ล้มเหลว = เปิดค้างไว้ ข้อความเหตุผลไม่หาย)
+    return true;
   }
 
   /* ─── ยกเลิกงานที่อยู่ระหว่างซ่อม ─── */
@@ -387,15 +619,14 @@ function RepairManagementPage() {
     const repair = cancelingRepair;
     const response = await rejectRepairRequest(repair.id, reason);
 
-    setCancelingRepair(null);
-
     if (response.isError) {
       alert(response.errorMessage || 'ยกเลิกไม่สำเร็จ');
-      return;
+      return false;
     }
 
     showToast(`ยกเลิก Case ${repair.caseCode} เรียบร้อย`);
     await fetchAll();
+    return true;
   }
 
   /* ─── Modal 2: Manage ─── */
@@ -403,17 +634,52 @@ function RepairManagementPage() {
     const r = findCase(requestId);
     if (!r) return;
     setManageRequestId(requestId);
-    // ถ้าเคสนี้มีคำร้องค้างอยู่ ให้เปิดตรงแท็บ "รายงานผลการซ่อม" เลย เพราะคำร้อง+ปุ่มอนุมัติ/ปฏิเสธ
-    // อยู่ในแท็บนั้น ไม่ใช่แท็บ "จัดการงานซ่อม" (ตารางนัด) ที่เคยเปิดให้แบบตายตัวมาก่อน
-    setManageTab(r.hasPendingComplaint ? 'report' : 'schedule');
-    setReportText(r.repairReport || '');
-    setReportNewPhotos([]);
+    setLimitDraft(r.maxComplaints);
+    if (r.statusId === 7) {
+      markComplaintReviewing(requestId);
+    }
+    // เปิดตรงแท็บ "รายงานผลการซ่อม" เลยถ้า: มีคำร้องค้างอยู่ (สถานะ 7 รอตัดสินใจ) หรือเคสถูกส่งงาน
+    // ไปแล้ว (สถานะ 3 — กดเข้ามาจากปุ่ม "แก้ไข" ใน modal ตรวจสอบ ก็ต้องการแก้รายงาน ไม่ใช่ตารางนัด)
+    setManageTab(r.statusId === 3 || r.statusId === 7 ? 'report' : 'schedule');
 
-    const [existingPhotos, complaints] = await Promise.all([
-      getCompletionPhotos(requestId),
+    const [savedItems, complaints, timeline] = await Promise.all([
+      getCompletionItems(requestId),
       getComplaints(requestId),
+      getRepairTimeline(requestId),
     ]);
-    setExistingReportPhotos(existingPhotos);
+
+    // ขั้นต่ำของวันนัดหมาย = วันที่เจ้าหน้าที่อนุมัติล่าสุด (คำร้องอุทธรณ์ที่อนุมัติล่าสุด ถ้ามี ไม่งั้นใช้วัน
+    // อนุมัติคำร้องแจ้งซ่อมครั้งแรกจาก timeline) แต่ไม่ให้ก่อนวันนี้ — backend เช็คซ้ำอีกชั้นแล้ว
+    const toDateOnly = (sqlDateTime) => (sqlDateTime ? sqlDateTime.slice(0, 10) : '');
+    const todayLocal = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    const latestApprovedComplaint = [...complaints].reverse().find((c) => c.decision === 'approved');
+    const firstApprovalStep = [...timeline].reverse().find((s) => s.stepCode === 'approved');
+    const approvalFloor = toDateOnly(latestApprovedComplaint?.decidedAt) || toDateOnly(firstApprovalStep?.eventDate);
+    const minDate = approvalFloor && approvalFloor > todayLocal ? approvalFloor : todayLocal;
+    setManageMinDate(minDate);
+    // โหลดมินิปฏิทินเช็คคิว 7 วันเริ่มจากขั้นต่ำที่นัดได้ — exclude ตัวเองกันนัดเดิมของเคสนี้มาแย่งที่ตัวเอง
+    getSlotAvailability(minDate, 7, requestId).then(setSlotAvailability);
+    // รอบปัจจุบัน = จำนวนคำร้องที่อนุมัติแล้ว (ต้องตรงกับที่ backend คำนวณ) เปิดมาที่เมนูของรอบนี้ทันที
+    const currentRound = complaints.filter((c) => c.decision === 'approved').length;
+    setManageRound(currentRound);
+    setAllCompletionItems(savedItems);
+    setManageTimeline(timeline);
+    // left-join: ทุกรายการงานซ่อมของเคส (r.repairTypes) ต้องมีการ์ดของตัวเอง แม้ยังไม่เคยมีรายงานเลย
+    // (savedItems จะมีแค่รายการที่เคยกด "บันทึก" ไปแล้วเท่านั้น) — เอาเฉพาะรายงานของรอบปัจจุบันเป็นช่องกรอก
+    // ช่องกรอกของรอบแก้ไขจึงเริ่มว่าง ไม่ดึงข้อความของรอบก่อนมาใส่
+    const itemReportsForCase = (r.repairTypes || []).map((type) => {
+      const saved = savedItems.find((item) => item.repairTypeId === type.id && item.revisionRound === currentRound);
+      return {
+        repairTypeId: type.id,
+        repairTypeName: type.name,
+        reportText: saved?.reportText || '',
+        existingPhotos: saved?.photos || [],
+        newPhotos: [],
+      };
+    });
+    setItemReports(itemReportsForCase);
+    // เก็บ snapshot ไว้เทียบตอนเช็คว่ามีอะไรพิมพ์ไว้แต่ยังไม่บันทึกไหม (ใช้ตอนกดอนุมัติ/ปฏิเสธคำร้อง)
+    setItemReportsSnapshot(itemReportsForCase);
     setCaseComplaints(complaints);
 
     let initialForm = { date: '', timeslot: '09-11', technicianId: '', notes: '' };
@@ -421,9 +687,8 @@ function RepairManagementPage() {
 
     // ถ้ามีนัดหมายอยู่แล้ว ให้ดึงข้อมูลมาเติมในฟอร์มเพื่อแก้ไข (รวมครุภัณฑ์ที่เคยเบิกไว้ด้วย)
     if (r.appointmentDate) {
-      const [detail, timeline, equipmentUsage] = await Promise.all([
+      const [detail, equipmentUsage] = await Promise.all([
         getRepairRequestDetail(requestId),
-        getRepairTimeline(requestId),
         getRepairEquipmentUsage(requestId),
       ]);
 
@@ -540,6 +805,15 @@ function RepairManagementPage() {
 
   async function handleSaveManage() {
     const repair = findCase(manageRequestId);
+
+    // attribute min ของ input วันที่ยังพิมพ์เลขวันย้อนหลังด้วยคีย์บอร์ดทะลุได้ เลยเช็คซ้ำตอนกดบันทึก
+    // เช็คเฉพาะตอนวันนัดถูกเปลี่ยนจากค่าตั้งต้น — บันทึกครุภัณฑ์/หมายเหตุของนัดเดิมที่ผ่านไปแล้วต้องทำได้
+    const dateChanged = manageForm.date !== (manageFormSnapshot?.form?.date ?? '');
+    if (dateChanged && manageForm.date && manageMinDate && manageForm.date < manageMinDate) {
+      alert(`นัดหมายวันซ่อมย้อนหลังไม่ได้ (เลือกได้ตั้งแต่วันที่ ${manageMinDate} เป็นต้นไป)`);
+      return;
+    }
+
     const startHour = manageForm.timeslot.split('-')[0].padStart(2, '0');
     const appointmentDate = manageForm.date ? `${manageForm.date} ${startHour}:00:00` : null;
 
@@ -561,29 +835,100 @@ function RepairManagementPage() {
     await fetchAll();
   }
 
-  // แท็บ B ของ Modal 2: บันทึกรายงานผลซ่อม+รูปหน้างาน — ไม่เปลี่ยนสถานะ ไม่ส่งให้นักศึกษาเห็นทันที
-  async function handleSendReport() {
-    const repair = findCase(manageRequestId);
-    const response = await saveRepairReport(manageRequestId, reportText, reportNewPhotos);
+  // แก้ค่าในการ์ดรายการเดียว (ยังไม่ save — แค่พิมพ์/เลือกรูปไว้ในฟอร์ม)
+  function handleItemReportTextChange(repairTypeId, value) {
+    setItemReports((prev) => prev.map((item) => (
+      item.repairTypeId === repairTypeId ? { ...item, reportText: value } : item
+    )));
+  }
+
+  function handleAddItemPhotos(repairTypeId, files) {
+    setItemReports((prev) => prev.map((item) => (
+      item.repairTypeId === repairTypeId ? { ...item, newPhotos: [...item.newPhotos, ...files] } : item
+    )));
+  }
+
+  function handleRemoveItemNewPhoto(repairTypeId, index) {
+    setItemReports((prev) => prev.map((item) => (
+      item.repairTypeId === repairTypeId
+        ? { ...item, newPhotos: item.newPhotos.filter((_, i) => i !== index) }
+        : item
+    )));
+  }
+
+  function handleRemoveItemExistingPhoto(repairTypeId, photoId) {
+    setItemReports((prev) => prev.map((item) => (
+      item.repairTypeId === repairTypeId
+        ? { ...item, existingPhotos: item.existingPhotos.filter((p) => p.photoId !== photoId) }
+        : item
+    )));
+  }
+
+  // บันทึกรายงาน+รูปของ "1 รายการ" — กดทีละการ์ด ไม่ใช่ครั้งเดียวทั้งเคส
+  async function handleSaveItemReport(repairTypeId) {
+    const item = itemReports.find((i) => i.repairTypeId === repairTypeId);
+    if (!item) return;
+
+    const response = await saveCompletionItemReport(
+      manageRequestId,
+      repairTypeId,
+      item.reportText,
+      item.existingPhotos.map((p) => p.photoUrl),
+      item.newPhotos,
+    );
 
     if (response.isError) {
-      alert(response.errorMessage || 'บันทึกรายงานผลซ่อมไม่สำเร็จ');
+      alert(response.errorMessage || 'บันทึกรายงานไม่สำเร็จ');
       return;
     }
 
-    setReportNewPhotos([]);
-    const refreshedPhotos = await getCompletionPhotos(manageRequestId);
-    setExistingReportPhotos(refreshedPhotos);
-    showToast(`บันทึกรายงานผลซ่อม Case ${repair?.caseCode} สำเร็จ`);
-    await fetchAll(true);
+    const refreshedItems = await getCompletionItems(manageRequestId);
+    setAllCompletionItems(refreshedItems);
+    // backend เขียนลงรอบปัจจุบันเสมอ (จำนวนคำร้องที่อนุมัติแล้ว) — หารายการที่เพิ่งบันทึกจากรอบเดียวกันนี้
+    const savedRound = caseComplaints.filter((c) => c.decision === 'approved').length;
+    const refreshed = refreshedItems.find((i) => i.repairTypeId === repairTypeId && i.revisionRound === savedRound);
+    const updateSavedItem = (i) => (
+      i.repairTypeId === repairTypeId
+        ? { ...i, reportText: refreshed?.reportText || '', existingPhotos: refreshed?.photos || [], newPhotos: [] }
+        : i
+    );
+    setItemReports((prev) => prev.map(updateSavedItem));
+    // sync snapshot ของรายการที่เพิ่ง save ด้วย ไม่งั้นจะโดนนับว่า "ยังไม่บันทึก" ค้างอยู่ตลอด
+    setItemReportsSnapshot((prev) => prev.map(updateSavedItem));
+    showToast(`บันทึกรายงาน "${item.repairTypeName}" สำเร็จ`);
   }
 
   // แท็บ B ของ Modal 2: ส่งงานให้นักศึกษาตรวจสอบ — ยังไม่ใช่จุดจบจริง นักศึกษาต้องกด "ยอมรับ" เอง
-  // (หรือยื่นคำร้องแจ้งแก้ไข) ถึงจะปิดเคสจริง — เปลี่ยนข้อความ confirm ให้ตรงความจริงใหม่แล้ว
+  // (หรือยื่นคำร้องแจ้งแก้ไข) ถึงจะปิดเคสจริง — ปุ่มนี้เป็นแค่ "ส่งให้ นศ ดู" เท่านั้น ไม่ใช่ปิดงาน
+  // เดิมบังคับให้กด "บันทึกรายการนี้" ทีละการ์ดก่อนถึงจะกดปุ่มนี้ได้ ทำให้พลาดง่าย (ลืมกดบันทึกแล้วส่งงาน
+  // ไปเลย ข้อมูลเลยไม่ถูกเก็บจริง) — เปลี่ยนเป็นให้ "ส่งงาน" บันทึกทุกการ์ดให้อัตโนมัติในตัวเดียวแทน
+  // ไม่ต้องกดบันทึกทีละใบเองแล้ว แค่กรอกให้ครบทุกรายการก่อนกดปุ่มนี้พอ
   async function handleCloseJob() {
     const repair = findCase(manageRequestId);
+
+    const missingItem = itemReports.find((item) => item.reportText.trim().length === 0);
+    if (missingItem) {
+      alert(`กรุณากรอกรายงานผลการซ่อมของรายการ "${missingItem.repairTypeName}" ก่อนส่งงาน`);
+      return;
+    }
+
     const confirmed = window.confirm(`ส่งงาน Case ${repair?.caseCode} ให้นักศึกษาตรวจสอบ? นักศึกษาจะเห็นรายงานผลซ่อมแล้วเลือกยอมรับหรือแจ้งแก้ไขได้`);
     if (!confirmed) return;
+
+    // บันทึกทุกรายการให้อัตโนมัติก่อนเปลี่ยนสถานะ — กันเคสลืมกด "บันทึกรายการนี้" มาก่อน
+    for (const item of itemReports) {
+      const saveResponse = await saveCompletionItemReport(
+        manageRequestId,
+        item.repairTypeId,
+        item.reportText,
+        item.existingPhotos.map((p) => p.photoUrl),
+        item.newPhotos,
+      );
+      if (saveResponse.isError) {
+        alert(`บันทึกรายงาน "${item.repairTypeName}" ไม่สำเร็จ: ${saveResponse.errorMessage || ''}`);
+        return;
+      }
+    }
 
     const response = await completeRepairRequest(manageRequestId);
 
@@ -597,47 +942,121 @@ function RepairManagementPage() {
     await fetchAll();
   }
 
-  // moderator ตัดสินใจคำร้องที่นักศึกษายื่นมา — อนุมัติ (ไปซ่อมรอบใหม่) หรือ ปฏิเสธ (ครบ 2 ครั้งจะบังคับปิดเคส)
-  async function handleDecideComplaint(complaintId, decision) {
+  // moderator ตัดสินใจคำร้องที่นักศึกษายื่นมา — อนุมัติ (ไปซ่อมรอบใหม่) หรือ ปฏิเสธ (กลับไปให้นักศึกษาตัดสิน:
+  // ยื่นใหม่ถ้ายังมีสิทธิ์ ไม่งั้นเลือกยอมรับ/ไม่ยอมรับ ไม่มีการปิดเคสอัตโนมัติ)
+  async function handleDecideComplaint(complaintId, decision, reason) {
     // ปุ่มอนุมัติ/ปฏิเสธคำร้องอยู่แท็บเดียวกับช่องพิมพ์รายงานผลซ่อม+แนบรูป ถ้าเจ้าหน้าที่พิมพ์/แนบ
     // ไว้แล้วแต่ยังไม่ได้กด "ส่งงาน" (ยังไม่ save) การกดปุ่มนี้จะปิด modal ทันทีทำให้ข้อมูลที่พิมพ์
     // ไว้หายไปเงียบๆ — เตือนก่อนเสมอถ้ามีการเปลี่ยนแปลงที่ยังไม่บันทึก
-    const repair = findCase(manageRequestId);
-    const hasUnsavedReport = reportText !== (repair?.repairReport || '') || reportNewPhotos.length > 0;
+    // เทียบกับ snapshot ตอนเปิด modal / ตอน save ล่าสุด — ถ้ามีรายการไหนข้อความหรือรูปยังไม่ตรงกับที่
+    // บันทึกไว้ล่าสุด ถือว่ามีของค้างไม่ได้ save
+    const hasUnsavedReport = itemReports.some((item) => {
+      const saved = itemReportsSnapshot.find((s) => s.repairTypeId === item.repairTypeId);
+      return item.reportText !== (saved?.reportText || '') || item.newPhotos.length > 0;
+    });
     if (hasUnsavedReport) {
       const confirmedDiscard = window.confirm(
         'คุณมีรายงานผลซ่อม/รูปที่พิมพ์หรือแนบไว้แต่ยังไม่ได้กด "ส่งงาน" ถ้าดำเนินการต่อ ข้อมูลที่ยังไม่บันทึกจะหายไป ต้องการดำเนินการต่อหรือไม่?'
       );
-      if (!confirmedDiscard) return;
+      if (!confirmedDiscard) return false;
     }
 
-    if (decision === 'rejected') {
-      const confirmed = window.confirm('ยืนยันปฏิเสธคำร้องนี้? ถ้าปฏิเสธครบ 2 ครั้ง เคสจะถูกปิดเป็น "สำเร็จ" ทันทีโดยไม่ให้ยื่นคำร้องอีก');
-      if (!confirmed) return;
-    }
-
-    const response = await decideComplaint(complaintId, manageRequestId, decision);
+    // ปฏิเสธต้องกรอกเหตุผลในหน้าต่างก่อน (ปุ่มปฏิเสธเปิดหน้าต่างนั้น ไม่ได้เรียกฟังก์ชันนี้ตรงๆ) หน้าต่างนั้นทำหน้าที่
+    // ยืนยันด้วยในตัว จึงไม่ต้อง window.confirm ซ้ำอีก
+    const response = await decideComplaint(complaintId, manageRequestId, decision, reason);
 
     if (response.isError) {
       alert(response.errorMessage || 'ดำเนินการไม่สำเร็จ');
-      return;
+      return false;
     }
 
     const refreshedComplaints = await getComplaints(manageRequestId);
     setCaseComplaints(refreshedComplaints);
     setManageRequestId(null);
-    showToast(decision === 'approved' ? 'อนุมัติคำร้องแล้ว เคสกลับไปเป็น "รอแก้ไข"' : 'ปฏิเสธคำร้องแล้ว');
+    const autoAppointmentDate = response.data?.appointmentDate;
+    const approvedMessage = autoAppointmentDate
+      ? `อนุมัติคำร้องแล้ว เคสกลับไปเป็น "รอแก้ไข" — ระบบจัดนัดหมายให้ ${appointmentToastLabel(autoAppointmentDate)}`
+      : 'อนุมัติคำร้องแล้ว เคสกลับไปเป็น "รอแก้ไข"';
+    showToast(decision === 'approved' ? approvedMessage : 'ปฏิเสธคำร้องแล้ว');
     await fetchAll();
+    // คืนผลให้ผู้เรียก: จุดปฏิเสธคำร้องปิดหน้าต่างเหตุผลเฉพาะเมื่อสำเร็จ (ล้มเหลว = เปิดค้างไว้ ข้อความไม่หาย)
+    return true;
   }
+
+  // สถานะ 7 = มีคำร้องอุทธรณ์ค้างรอตัดสินใจ — ล็อกทั้งแท็บนัดหมายและแท็บรายงาน จนกว่าจะอนุมัติ/ปฏิเสธ
+  const manageStatusId = findCase(manageRequestId)?.statusId;
+  const isManageLockedByComplaint = manageStatusId === 7;
+
+  // ตัวปรับจำนวนครั้งที่ยื่นอุทธรณ์ได้: เคสที่ปิดแล้ว (4 ปฏิเสธ/ยกเลิก, 6 สำเร็จ, 8 ซ่อมไม่สำเร็จ) ปรับไม่ได้ และ
+  // ตั้งต่ำกว่าจำนวนที่นักศึกษายื่นไปแล้วไม่ได้ (backend ตรวจซ้ำอีกชั้น)
+  const isManageCaseClosed = manageStatusId === 4 || manageStatusId === 6 || manageStatusId === 8;
+  const manageSavedLimit = findCase(manageRequestId)?.maxComplaints;
+  const complaintLimitMin = Math.max(MIN_COMPLAINT_LIMIT, caseComplaints.length);
+
+  async function handleSaveComplaintLimit() {
+    const response = await updateComplaintLimit(manageRequestId, limitDraft);
+
+    if (response.isError) {
+      alert(response.errorMessage || 'บันทึกจำนวนครั้งที่ยื่นอุทธรณ์ไม่สำเร็จ');
+      return;
+    }
+
+    showToast(`ตั้งจำนวนครั้งที่ยื่นอุทธรณ์ของ Case ${findCase(manageRequestId)?.caseCode} เป็น ${limitDraft} ครั้งเรียบร้อย`);
+    await fetchAll(true);
+  }
+
+  // รอบปัจจุบัน = จำนวนคำร้องที่อนุมัติแล้ว (ตรงกับ backend) / ยื่นทั้งหมดมากกว่ารอบปัจจุบัน = มีคำร้องยื่นต่อรายงาน
+  // รอบนี้ไปแล้ว (รอตัดสินหรือถูกปฏิเสธ) หรือนักศึกษายอมรับแล้ว (สถานะ 6) → รายงานรอบปัจจุบันล็อก
+  const manageCurrentRound = caseComplaints.filter((c) => c.decision === 'approved').length;
+  const isCurrentReportLocked = caseComplaints.length > manageCurrentRound || manageStatusId === 6;
+  // กรอก/บันทึก/ส่งงานได้เฉพาะตอนดูเมนูของรอบปัจจุบัน และรายงานรอบนั้นยังไม่ถูกล็อก
+  const isViewingPastRound = manageRound !== manageCurrentRound;
+  const isViewedReportEditable = !isViewingPastRound && !isCurrentReportLocked;
+
+  // การ์ดรายงานของรอบที่กำลังดู: รอบปัจจุบัน = ช่องกรอก (itemReports) / รอบเก่า = รายงานที่บันทึกไว้ของรอบนั้น (อ่านอย่างเดียว)
+  const viewedReportItems = isViewingPastRound
+    ? allCompletionItems
+        .filter((i) => i.revisionRound === manageRound)
+        .map((i) => ({
+          repairTypeId: i.repairTypeId,
+          repairTypeName: i.repairTypeName,
+          reportText: i.reportText,
+          existingPhotos: i.photos,
+          newPhotos: [],
+        }))
+    : itemReports;
+
+  // ประวัตินัดหมายของรอบที่กำลังดู (จาก timeline): รอบของการ์ดนัดหมาย = จำนวนการ์ด complaint_approved ที่เกิดก่อนหน้านั้น
+  // (ใช้แสดงในเมนูย่อย "นัดหมาย" ของรอบเก่า เพราะฐานข้อมูลเก็บนัดหมายปัจจุบันไว้ค่าเดียว)
+  const roundAppointments = (() => {
+    let round = 0;
+    const list = [];
+    for (const step of manageTimeline) {
+      if (step.stepCode === 'complaint_approved') round += 1;
+      else if (step.stepCode === 'appointment' && round === manageRound) list.push(step);
+    }
+    return list;
+  })();
 
   /* ─── Modal 3: Review ─── */
   const reviewRepair = reviewRequestId ? findCase(reviewRequestId) : null;
 
-  async function openReviewModal(requestId) {
+  async function openReviewModal(requestId, initialTab = 'report') {
     setReviewRequestId(requestId);
-    setReviewTab('report');
-    const photos = await getCompletionPhotos(requestId);
-    setReviewCompletionPhotos(photos);
+    setReviewTab(initialTab);
+    const [items, complaints, evaluation, timeline] = await Promise.all([
+      getCompletionItems(requestId),
+      getComplaints(requestId),
+      getEvaluation(requestId),
+      getRepairTimeline(requestId),
+    ]);
+    setReviewCompletionItems(items);
+    // ยื่นคำร้องมากกว่าที่อนุมัติ = มีคำร้องยื่นต่อรายงานล่าสุดไปแล้ว (รอตัดสิน/ถูกปฏิเสธ) → ห้ามแก้รายงานย้อนหลัง
+    setReviewEditLocked(complaints.length > complaints.filter((c) => c.decision === 'approved').length);
+    setReviewEvaluation(evaluation);
+    // อาจไม่ยอมรับได้แค่ครั้งเดียวต่อเคส แต่หาแบบ "ล่าสุด" ไว้กันเหนียว
+    const declinedStep = [...timeline].reverse().find((s) => s.stepCode === 'declined');
+    setReviewDeclineReason(declinedStep?.eventDetail || null);
   }
 
   return (
@@ -826,7 +1245,7 @@ function RepairManagementPage() {
         footer={
           manageTab === 'schedule' ? (
             <div className="flex gap-3 ml-auto items-center">
-              {findCase(manageRequestId)?.appointmentDate && (
+              {findCase(manageRequestId)?.appointmentDate && !isManageLockedByComplaint && !isViewingPastRound && (
                 <button onClick={handleDeleteAppointment} className="h-11.5 px-6 rounded-full text-sm font-bold text-red-700 bg-red-100 hover:bg-red-200 flex items-center gap-2">
                   <span className="material-symbols-outlined text-lg">event_busy</span> ลบกำหนดนัดหมาย
                 </button>
@@ -836,7 +1255,7 @@ function RepairManagementPage() {
               </button>
               <button
                 onClick={handleSaveManage}
-                disabled={!hasScheduleChanges()}
+                disabled={!hasScheduleChanges() || isManageLockedByComplaint || isViewingPastRound}
                 className="h-11.5 px-6 rounded-full text-sm font-bold text-white bg-blue-700 shadow-md hover:brightness-110 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:brightness-100"
               >
                 <span className="material-symbols-outlined text-lg">save</span> บันทึกการมอบหมาย
@@ -847,61 +1266,135 @@ function RepairManagementPage() {
               <button onClick={() => setManageRequestId(null)} className="h-11.5 px-6 rounded-full text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200">
                 ยกเลิก
               </button>
-              <button onClick={handleSendReport} className="h-11.5 px-6 rounded-full text-sm font-bold text-blue-700 bg-blue-100 hover:bg-blue-200 flex items-center gap-2">
-                <span className="material-symbols-outlined text-lg">save</span> ส่งงาน
-              </button>
-              <button onClick={handleCloseJob} className="h-11.5 px-6 rounded-full text-sm font-bold text-white bg-blue-700 shadow-md hover:brightness-110 flex items-center gap-2">
-                <span className="material-symbols-outlined text-lg">task_alt</span> ปิดงาน
-              </button>
+              {/* สถานะ 7 = มีคำร้องค้าง รอเจ้าหน้าที่ตัดสินใจ — ห้ามส่งงานทับคำร้องที่ยังไม่ตัดสินใจ
+                  (เดิมกดได้ตรงๆ ทำให้เคสข้ามขั้นตอนอนุมัติ/ปฏิเสธคำร้องไปเลย) ต้องตัดสินใจคำร้องก่อน
+                  ถึงจะกลับมาแก้ไข/ส่งงานได้ */}
+              {/* ส่งงานได้เฉพาะตอนดูรอบปัจจุบันที่ยังไม่ถูกล็อก (isViewedReportEditable ครอบคลุมสถานะ 7 อยู่แล้ว
+                  เพราะสถานะ 7 = มีคำร้องยื่นต่อรายงานรอบนี้ = ล็อก) */}
+              {isViewedReportEditable && (
+                <button
+                  onClick={handleCloseJob}
+                  className="h-11.5 px-6 rounded-full text-sm font-bold text-white bg-blue-700 shadow-md hover:brightness-110 flex items-center gap-2"
+                >
+                  <span className="material-symbols-outlined text-lg">send</span> ส่งงาน
+                </button>
+              )}
             </div>
           )
         }
       >
+        {/* ปรับจำนวนครั้งที่นักศึกษายื่นอุทธรณ์ได้ของเคสนี้ (ค่าเริ่มต้น 2, ตั้งได้ 1-5) — ปรับได้เฉพาะเคสที่ยังไม่ปิด */}
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+          <div>
+            <p className="text-sm font-bold">จำนวนครั้งที่ยื่นอุทธรณ์ได้</p>
+            <p className="text-xs text-slate-500">
+              {isManageCaseClosed
+                ? 'เคสนี้ปิดแล้ว ปรับไม่ได้'
+                : `นักศึกษายื่นแล้ว ${caseComplaints.length} ครั้ง · ตั้งได้ ${MIN_COMPLAINT_LIMIT}–${MAX_COMPLAINT_LIMIT} ครั้ง`}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setLimitDraft((v) => Math.max(complaintLimitMin, v - 1))}
+              disabled={isManageCaseClosed || limitDraft <= complaintLimitMin}
+              className="w-9 h-9 rounded-full border border-slate-300 bg-white text-lg font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              −
+            </button>
+            <span className="min-w-8 text-center text-xl font-extrabold text-blue-800">{limitDraft}</span>
+            <button
+              type="button"
+              onClick={() => setLimitDraft((v) => Math.min(MAX_COMPLAINT_LIMIT, v + 1))}
+              disabled={isManageCaseClosed || limitDraft >= MAX_COMPLAINT_LIMIT}
+              className="w-9 h-9 rounded-full border border-slate-300 bg-white text-lg font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              +
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveComplaintLimit}
+              disabled={isManageCaseClosed || limitDraft === manageSavedLimit}
+              className="h-9 px-4 rounded-full text-sm font-bold text-white bg-blue-700 hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:brightness-100"
+            >
+              บันทึก
+            </button>
+          </div>
+        </div>
+
+        {/* เมนูใหญ่: ซ่อม / แก้ไขครั้งที่ 1 / แก้ไขครั้งที่ 2 ... — โผล่เฉพาะเคสที่เคยอนุมัติคำร้องอุทธรณ์แล้ว
+            (จำนวนเมนูรอบแก้ไข = จำนวนคำร้องที่อนุมัติแล้ว ไม่เกินสิทธิ์ของเคส) รอบเก่าเปิดดูได้แต่กรอก/แก้ไม่ได้ */}
+        {manageCurrentRound > 0 && (
+          <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-3">
+            {Array.from({ length: manageCurrentRound + 1 }, (_, round) => (
+              <button
+                key={round}
+                onClick={() => setManageRound(round)}
+                className={`px-5 py-2 rounded-xl text-sm font-bold border ${
+                  manageRound === round
+                    ? 'bg-blue-800 border-blue-800 text-white'
+                    : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {roundLabel(round)}
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="flex gap-1 bg-slate-100 rounded-full p-1 w-fit">
           <button
             onClick={() => setManageTab('schedule')}
             className={`px-6.5 py-2.5 rounded-full text-sm font-bold ${manageTab === 'schedule' ? 'bg-blue-700 text-white shadow-md' : 'text-slate-500 hover:bg-black/5'}`}
           >
-            จัดการงานซ่อม
+            นัดหมาย
           </button>
           <button
             onClick={() => setManageTab('report')}
             className={`px-6.5 py-2.5 rounded-full text-sm font-bold ${manageTab === 'report' ? 'bg-blue-700 text-white shadow-md' : 'text-slate-500 hover:bg-black/5'}`}
           >
-            รายงานผลการซ่อม
+            รายงาน
           </button>
         </div>
 
-        {manageTab === 'schedule' ? (
-        <div className="grid md:grid-cols-2 gap-6">
-          {/* ฝั่งซ้าย: นัดหมายวันซ่อม + ช่วงเวลา + ช่างผู้รับผิดชอบ */}
-          <div className="flex flex-col gap-4.5">
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-bold">นัดหมายวันซ่อม</label>
-              <div className="relative flex items-center">
-                <span className="material-symbols-outlined absolute left-3.5 text-slate-400 text-lg pointer-events-none">calendar_today</span>
-                <input
-                  type="date"
-                  value={manageForm.date}
-                  onChange={(e) => setManageForm((f) => ({ ...f, date: e.target.value }))}
-                  className="w-full pl-10.5 pr-4 py-3 border-[1.5px] border-slate-300 rounded-xl text-sm focus:outline-none focus:border-blue-800 focus:ring-4 focus:ring-blue-800/10"
-                />
+        {manageTab === 'schedule' && isViewingPastRound ? (
+        <div className="flex flex-col gap-3">
+          <p className="text-sm text-slate-500">
+            ประวัตินัดหมายของ "{roundLabel(manageRound)}" — รอบนี้ผ่านไปแล้ว ดูได้อย่างเดียว
+          </p>
+          {roundAppointments.length === 0 ? (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+              ไม่มีประวัตินัดหมายในรอบนี้
+            </div>
+          ) : (
+            roundAppointments.map((step, index) => (
+              <div key={index} className="rounded-xl border-[1.5px] border-slate-200 p-4 text-sm">
+                <div className="text-xs font-bold text-slate-500">{step.eventDate}</div>
+                <div className="mt-1 text-slate-800">{step.eventDetail || 'นัดหมาย'}</div>
               </div>
-            </div>
+            ))
+          )}
+        </div>
+        ) : manageTab === 'schedule' ? (
+        <fieldset disabled={isManageLockedByComplaint} className="min-w-0 border-0 p-0 m-0 flex flex-col gap-4">
+        {isManageLockedByComplaint && (
+          <div className="rounded-xl border border-orange-300 bg-orange-50 px-4 py-3 text-sm text-orange-800">
+            เคสนี้มีคำร้องจากนักศึกษารอตัดสินใจ — แก้ไขนัดหมายไม่ได้จนกว่าจะอนุมัติหรือปฏิเสธคำร้อง (ดูที่แท็บ "รายงานผลการซ่อม")
+          </div>
+        )}
+        {/* มินิปฏิทินเช็คคิว — แทนที่ช่องวันที่+ช่วงเวลาเดิม ให้เห็นภาพรวม 7 วันล่วงหน้าพร้อมกัน
+            คลิกช่องเพื่อเลือกวันที่/ช่วงเวลาลง manageForm ตรงๆ (ฟอร์ม/การ submit ด้านล่างไม่เปลี่ยน) */}
+        <SlotAvailabilityCalendar
+          minDate={manageMinDate}
+          availability={slotAvailability}
+          selectedDate={manageForm.date}
+          selectedTimeslot={manageForm.timeslot}
+          onPick={(date, timeslot) => setManageForm((f) => ({ ...f, date, timeslot }))}
+        />
 
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-bold">ช่วงเวลา</label>
-              <select
-                value={manageForm.timeslot}
-                onChange={(e) => setManageForm((f) => ({ ...f, timeslot: e.target.value }))}
-                className="w-full px-4 py-3 border-[1.5px] border-slate-300 rounded-xl text-sm bg-white focus:outline-none focus:border-blue-800 focus:ring-4 focus:ring-blue-800/10"
-              >
-                <option value="09-11">09:00 - 11:00 น.</option>
-                <option value="13-15">13:00 - 15:00 น.</option>
-                <option value="15-17">15:00 - 17:00 น.</option>
-              </select>
-            </div>
-
+        <div className="grid md:grid-cols-2 gap-6">
+          {/* ฝั่งซ้าย: ช่างผู้รับผิดชอบ */}
+          <div className="flex flex-col gap-4.5">
             <div className="flex flex-col gap-2">
               <label className="text-sm font-bold">ช่างผู้รับผิดชอบ</label>
               <select
@@ -971,12 +1464,15 @@ function RepairManagementPage() {
             </div>
           </div>
         </div>
+        </fieldset>
         ) : (
         <div className="flex flex-col gap-6">
           {caseComplaints.length > 0 && (
             <div className="flex flex-col gap-3">
               <label className="text-sm font-bold">ประวัติคำร้องจากนักศึกษา</label>
               {caseComplaints.map((complaint, index) => (
+                // โชว์เฉพาะคำร้องที่เกี่ยวกับรอบนี้: ใบที่ทำให้เกิดรอบนี้ (index = รอบ-1) และใบที่ยื่นต่อรายงานรอบนี้ (index = รอบ)
+                (index === manageRound - 1 || index === manageRound) && (
                 <div
                   key={complaint.complaintId}
                   className={`rounded-xl border-[1.5px] p-4 flex flex-col gap-2 ${
@@ -988,6 +1484,11 @@ function RepairManagementPage() {
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs font-bold text-slate-500">
                       คำร้องที่ {index + 1} — {complaint.filedAt}
+                      {complaint.editedAt && (
+                        <span className="ml-2 px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                          นักศึกษาแก้ไขแล้ว {complaint.editedAt}
+                        </span>
+                      )}
                     </span>
                     <span
                       className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold whitespace-nowrap ${
@@ -1002,17 +1503,43 @@ function RepairManagementPage() {
                     </span>
                   </div>
 
+                  <div className="flex flex-wrap gap-2">
+                    {complaint.reasonCategoryName && (
+                      <span className="w-fit px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-200 text-slate-700">
+                        เหตุผลที่ไม่พอใจ: {complaint.reasonCategoryName}
+                      </span>
+                    )}
+                    {complaint.allowEntry !== null && (
+                      <span
+                        className={`w-fit px-2.5 py-1 rounded-lg text-xs font-bold ${
+                          complaint.allowEntry ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700'
+                        }`}
+                      >
+                        {complaint.allowEntry ? 'อนุญาตให้ช่างเข้าห้อง' : 'ไม่อนุญาตให้ช่างเข้าห้อง'}
+                      </span>
+                    )}
+                  </div>
+
                   <p className="text-sm text-slate-800 whitespace-pre-wrap">{complaint.complaintText}</p>
 
                   {complaint.photos.length > 0 && (
                     <div className="grid grid-cols-4 gap-2">
-                      {complaint.photos.map((photo) => (
-                        <img
+                      {complaint.photos.map((photo, photoIndex) => (
+                        <button
                           key={photo.photoId}
-                          src={photoFullUrl(photo.photoUrl)}
-                          alt="รูปประกอบคำร้อง"
-                          className="aspect-square w-full rounded-lg object-cover border border-slate-200"
-                        />
+                          type="button"
+                          onClick={() => setLightboxState({
+                            photos: complaint.photos.map((p) => ({ photo_id: p.photoId, photo_url: p.photoUrl })),
+                            index: photoIndex,
+                          })}
+                          className="aspect-square w-full"
+                        >
+                          <img
+                            src={photoFullUrl(photo.photoUrl)}
+                            alt="รูปประกอบคำร้อง"
+                            className="h-full w-full rounded-lg object-cover border border-slate-200"
+                          />
+                        </button>
                       ))}
                     </div>
                   )}
@@ -1028,7 +1555,7 @@ function RepairManagementPage() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => handleDecideComplaint(complaint.complaintId, 'rejected')}
+                        onClick={() => setRejectingComplaintId(complaint.complaintId)}
                         className="flex-1 h-9 rounded-lg text-xs font-bold text-red-700 bg-red-100 hover:bg-red-200"
                       >
                         ปฏิเสธคำร้อง
@@ -1036,68 +1563,55 @@ function RepairManagementPage() {
                     </div>
                   )}
                 </div>
+                )
               ))}
             </div>
           )}
 
-          <div className="grid md:grid-cols-2 gap-6">
-          <div className="flex flex-col gap-2">
-            <label className="text-sm font-bold">รายงานผลการซ่อม</label>
-            <textarea
-              value={reportText}
-              onChange={(e) => setReportText(e.target.value)}
-              placeholder="ระบุรายละเอียดผลการซ่อม..."
-              className="w-full min-h-40 px-4 py-3 border-[1.5px] border-slate-300 rounded-xl text-sm resize-none focus:outline-none focus:border-blue-800 focus:ring-4 focus:ring-blue-800/10"
-            />
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <label className="text-sm font-bold">รูปภาพหลักฐาน / รูปภาพหน้างาน</label>
-            <div className="grid grid-cols-3 gap-2">
-              {existingReportPhotos.map((photo) => (
-                <img
-                  key={photo.photoId}
-                  src={photoFullUrl(photo.photoUrl)}
-                  alt="รูปหลักฐานหน้างาน"
-                  className="aspect-square w-full rounded-xl object-cover border border-slate-200"
-                />
-              ))}
-              {reportNewPhotos.map((file, index) => (
-                <div key={index} className="relative aspect-square">
-                  <img
-                    src={URL.createObjectURL(file)}
-                    alt="รูปที่เพิ่งเลือก"
-                    className="h-full w-full rounded-xl object-cover border border-slate-200"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setReportNewPhotos((prev) => prev.filter((_, i) => i !== index))}
-                    className="absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white"
-                  >
-                    <span className="material-symbols-outlined text-sm">close</span>
-                  </button>
-                </div>
-              ))}
-            </div>
-            <label className="w-fit flex items-center gap-1.5 text-sm font-bold text-blue-700 hover:text-blue-900 cursor-pointer">
-              <span className="material-symbols-outlined text-lg">add_photo_alternate</span> แนบรูปภาพ
-              <input
-                type="file"
-                accept="image/jpeg,image/webp"
-                multiple
-                className="hidden"
-                onChange={(e) => {
-                  const files = Array.from(e.target.files || []);
-                  setReportNewPhotos((prev) => [...prev, ...files]);
-                  e.target.value = '';
-                }}
-              />
+          <div className="flex flex-col gap-3">
+            <label className="text-sm font-bold">
+              {roundReportTitle(manageRound)} (แยกตามรายการงานซ่อม)
+              {!isViewedReportEditable && (
+                <span className="ml-2 rounded-full bg-slate-200 px-2.5 py-0.5 text-[11px] font-bold text-slate-600">
+                  ดูอย่างเดียว
+                </span>
+              )}
             </label>
-          </div>
+            {viewedReportItems.length === 0 && (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                ไม่มีรายงานในรอบนี้
+              </div>
+            )}
+            {viewedReportItems.map((item) => (
+              <CompletionItemReportCard
+                key={item.repairTypeId}
+                item={item}
+                onReportTextChange={handleItemReportTextChange}
+                onAddPhotos={handleAddItemPhotos}
+                onRemoveNewPhoto={handleRemoveItemNewPhoto}
+                onRemoveExistingPhoto={handleRemoveItemExistingPhoto}
+                onSave={handleSaveItemReport}
+                onViewPhoto={(photos, index) => setLightboxState({ photos, index })}
+                readOnly={!isViewedReportEditable}
+              />
+            ))}
           </div>
         </div>
         )}
       </BaseModal>
+
+      {/* Lightbox แยกอยู่นอก BaseModal (ต้องอยู่ z-index สูงกว่า) — mirror pattern ของ RepairDetailModal.jsx */}
+      <AnimatePresence>
+        {lightboxState && (
+          <PhotoLightbox
+            key="completion-item-lightbox"
+            photos={lightboxState.photos}
+            initialIndex={lightboxState.index}
+            caseCode={findCase(manageRequestId)?.caseCode}
+            onClose={() => setLightboxState(null)}
+          />
+        )}
+      </AnimatePresence>
 
       <EquipmentPickerModal
         isOpen={isPickerOpen}
@@ -1116,12 +1630,20 @@ function RepairManagementPage() {
         maxWidth="max-w-4xl"
         footer={
           <div className="flex gap-3 ml-auto">
-            <button
-              onClick={() => showToast('กำลังเตรียมพิมพ์รายงาน... (ฟังก์ชันพิมพ์จะเชื่อมต่อในเฟสถัดไป)')}
-              className="h-11.5 px-6 rounded-full text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 flex items-center gap-2"
-            >
-              <span className="material-symbols-outlined text-lg">print</span> พิมพ์รายงาน
-            </button>
+            {/* แก้ไขได้เฉพาะตอนสถานะ "เสร็จสิ้น"(3) เท่านั้น — คือช่วงที่นักศึกษายังไม่ได้กดยอมรับหรือ
+                ยื่นคำร้องเลย พอนักศึกษายื่นคำร้อง สถานะจะเปลี่ยนเป็น "รอตรวจสอบคำร้อง"(7) ไปเอง
+                (ไม่ใช่ 3 อีกต่อไป) เช็คแค่ statusId===3 ตรงๆ ก็เพียงพอ */}
+            {reviewRepair?.statusId === 3 && !reviewEditLocked && (
+              <button
+                onClick={() => {
+                  setReviewRequestId(null);
+                  openManageModal(reviewRequestId);
+                }}
+                className="h-11.5 px-6 rounded-full text-sm font-bold text-blue-700 bg-blue-100 hover:bg-blue-200 flex items-center gap-2"
+              >
+                <span className="material-symbols-outlined text-lg">edit</span> แก้ไข
+              </button>
+            )}
           </div>
         }
       >
@@ -1148,29 +1670,90 @@ function RepairManagementPage() {
             </div>
 
             {reviewTab === 'report' ? (
+              <div className="flex flex-col gap-4">
+                {reviewCompletionItems.length === 0 ? (
+                  <div className="bg-slate-50 border border-slate-300 rounded-xl px-4 py-3.5 text-sm text-slate-500">
+                    ยังไม่มีรายงาน
+                  </div>
+                ) : (
+                  reviewCompletionItems.map((item, itemIndex) => (
+                    <div key={item.completionItemId} className="flex flex-col gap-2">
+                      {/* หัวข้อรอบ: โชว์เมื่อขึ้นรอบใหม่ (รายงานการซ่อม / รายงานการแก้ไขครั้งที่ N) แยกรายงานแต่ละรอบไม่ให้ปนกัน */}
+                      {(itemIndex === 0 || reviewCompletionItems[itemIndex - 1].revisionRound !== item.revisionRound) && (
+                        <h4 className="mt-2 text-sm font-extrabold text-slate-800 border-b border-slate-200 pb-1">
+                          {roundReportTitle(item.revisionRound)}
+                        </h4>
+                      )}
+                    <div className="rounded-xl border-[1.5px] border-slate-200 p-4 flex flex-col gap-2">
+                      <span className="text-sm font-bold text-blue-700">{item.repairTypeName}</span>
+                      <div className="bg-slate-50 border border-slate-300 rounded-xl px-4 py-3.5 text-sm min-h-12 whitespace-pre-wrap">
+                        {item.reportText || 'ยังไม่มีรายงาน'}
+                      </div>
+                      {item.photos.length > 0 && (
+                        <div className="grid grid-cols-4 gap-2">
+                          {item.photos.map((photo) => (
+                            <img
+                              key={photo.photoId}
+                              src={photoFullUrl(photo.photoUrl)}
+                              alt="รูปหลักฐานหน้างาน"
+                              className="aspect-square w-full rounded-xl object-cover border border-slate-200"
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            ) : reviewRepair?.statusId === 8 ? (
+              // สถานะ "ซ่อมไม่สำเร็จ" ไม่มีดาวประเมิน (นักศึกษาบอกไม่พอใจไปแล้วตั้งแต่กด "ไม่ยอมรับ")
+              // แต่มีเหตุผลที่กรอกไว้ตอนนั้นแทน (เก็บใน timeline step 'declined')
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-bold text-red-700">เหตุผลที่นักศึกษาไม่ยอมรับผลการซ่อม</label>
+                <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3.5 text-sm min-h-12 whitespace-pre-wrap">
+                  {reviewDeclineReason || 'ไม่ได้ระบุเหตุผล'}
+                </div>
+              </div>
+            ) : reviewEvaluation ? (
               <div className="grid md:grid-cols-2 gap-6">
-                <div className="flex flex-col gap-4.5">
-                  <div className="flex flex-col gap-2">
-                    <label className="text-sm font-bold">รายงาน</label>
-                    <div className="bg-slate-50 border border-slate-300 rounded-xl px-4 py-3.5 text-sm min-h-12 whitespace-pre-wrap">
-                      {reviewRepair.repairReport || 'ยังไม่มีรายงาน'}
+                <div className="flex flex-col gap-3">
+                  <div>
+                    <label className="text-sm font-bold">คะแนนความพึงพอใจ</label>
+                    <div className="mt-1 flex items-center gap-1">
+                      {[1, 2, 3, 4, 5].map((n) => (
+                        <span
+                          key={n}
+                          className={`material-symbols-outlined text-2xl ${n <= reviewEvaluation.rating ? 'text-amber-500' : 'text-slate-300'}`}
+                          style={{ fontVariationSettings: n <= reviewEvaluation.rating ? "'FILL' 1" : "'FILL' 0" }}
+                        >
+                          star
+                        </span>
+                      ))}
+                      <span className="ml-1 text-sm font-bold text-slate-700">{reviewEvaluation.rating} / 5</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-sm font-bold">ข้อเสนอแนะเพิ่มเติม</label>
+                    <div className="mt-1 bg-slate-50 border border-slate-300 rounded-xl px-4 py-3.5 text-sm min-h-12 whitespace-pre-wrap">
+                      {reviewEvaluation.feedback || 'ยังไม่มีข้อเสนอแนะ'}
                     </div>
                   </div>
                 </div>
                 <div>
-                  <label className="text-sm font-bold">รูปภาพหลักฐาน / รูปภาพหน้างาน</label>
-                  {reviewCompletionPhotos.length === 0 ? (
+                  <label className="text-sm font-bold">รูปภาพผลลัพธ์หลังซ่อมเสร็จ</label>
+                  {reviewEvaluation.photos.length === 0 ? (
                     <div className="aspect-square mt-2 bg-slate-50 border-2 border-dashed border-slate-300 rounded-2xl flex flex-col items-center justify-center gap-2 text-slate-500">
                       <span className="material-symbols-outlined text-4xl opacity-50">photo_camera</span>
                       <p className="text-sm font-semibold">ไม่มีรูปภาพแนบ</p>
                     </div>
                   ) : (
                     <div className="grid grid-cols-3 gap-2 mt-2">
-                      {reviewCompletionPhotos.map((photo) => (
+                      {reviewEvaluation.photos.map((photo) => (
                         <img
                           key={photo.photoId}
                           src={photoFullUrl(photo.photoUrl)}
-                          alt="รูปหลักฐานหน้างาน"
+                          alt="รูปผลลัพธ์หลังซ่อมเสร็จ"
                           className="aspect-square w-full rounded-xl object-cover border border-slate-200"
                         />
                       ))}
@@ -1179,20 +1762,8 @@ function RepairManagementPage() {
                 </div>
               </div>
             ) : (
-              <div className="grid md:grid-cols-2 gap-6">
-                <div className="flex flex-col gap-2">
-                  <label className="text-sm font-bold">ข้อเสนอแนะเพิ่มเติม</label>
-                  <div className="bg-slate-50 border border-slate-300 rounded-xl px-4 py-3.5 text-sm min-h-12">
-                    ยังไม่มีข้อเสนอแนะ
-                  </div>
-                </div>
-                <div>
-                  <label className="text-sm font-bold">รูปภาพผลลัพธ์หลังซ่อมเสร็จ</label>
-                  <div className="aspect-square mt-2 bg-slate-50 border-2 border-dashed border-slate-300 rounded-2xl flex flex-col items-center justify-center gap-2 text-slate-500">
-                    <span className="material-symbols-outlined text-4xl opacity-50">photo_camera</span>
-                    <p className="text-sm font-semibold">ไม่มีรูปภาพแนบ</p>
-                  </div>
-                </div>
+              <div className="bg-slate-50 border border-slate-300 rounded-xl px-4 py-3.5 text-sm text-slate-500">
+                ยังไม่มีการประเมิน (นักศึกษายังไม่ได้กดยืนยัน/ประเมินงานซ่อม)
               </div>
             )}
           </>
@@ -1204,10 +1775,27 @@ function RepairManagementPage() {
         isOpen={!!rejectingRepair}
         caseCode={rejectingRepair?.caseCode}
         onClose={() => setRejectingRepair(null)}
-        onConfirm={(reason) => {
-          const repair = rejectingRepair;
-          setRejectingRepair(null);
-          handleReject(repair, reason);
+        onConfirm={async (reason) => {
+          const succeeded = await handleReject(rejectingRepair, reason);
+          if (succeeded) {
+            setRejectingRepair(null);
+          }
+        }}
+      />
+
+      {/* ═══════ ปฏิเสธคำร้องอุทธรณ์ของนักศึกษา (ต้องระบุเหตุผล นักศึกษาจะเห็นใน timeline) ═══════ */}
+      <RejectReasonModal
+        isOpen={!!rejectingComplaintId}
+        caseCode={findCase(manageRequestId)?.caseCode}
+        title="ระบุเหตุผลที่ปฏิเสธคำร้อง"
+        placeholder="ระบุเหตุผลที่ปฏิเสธคำร้อง เช่น ตรวจสอบแล้วงานซ่อมเรียบร้อยตามมาตรฐาน..."
+        note='นักศึกษาจะเห็นเหตุผลนี้ใน timeline หลังปฏิเสธ เคสกลับไปให้นักศึกษาตัดสิน: ยื่นคำร้องใหม่ได้ถ้ายังมีสิทธิ์ ถ้าใช้สิทธิ์ครบแล้วนักศึกษาต้องเลือก "ยอมรับ" หรือ "ไม่ยอมรับ" ผลซ่อม'
+        onClose={() => setRejectingComplaintId(null)}
+        onConfirm={async (reason) => {
+          const succeeded = await handleDecideComplaint(rejectingComplaintId, 'rejected', reason);
+          if (succeeded) {
+            setRejectingComplaintId(null);
+          }
         }}
       />
 
@@ -1216,7 +1804,12 @@ function RepairManagementPage() {
         isOpen={!!cancelingRepair}
         caseCode={cancelingRepair?.caseCode}
         onClose={() => setCancelingRepair(null)}
-        onConfirm={handleCancelInProgress}
+        onConfirm={async (reason) => {
+          const succeeded = await handleCancelInProgress(reason);
+          if (succeeded) {
+            setCancelingRepair(null);
+          }
+        }}
       />
 
       {/* Toast */}

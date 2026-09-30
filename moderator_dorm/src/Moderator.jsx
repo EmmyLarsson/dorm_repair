@@ -9,7 +9,7 @@ import HomePage from "./pages/HomePage";
 import RepairManagementPage from "./pages/RepairManagementPage";
 import PersonnelPage from "./pages/PersonnelPage";
 import InventoryPage from "./pages/InventoryPage";
-// import ReportPage from "./pages/ReportPage";
+import ReportPage from "./pages/ReportPage";
 
 export default function Moderator() {
   return (
@@ -42,10 +42,10 @@ export default function Moderator() {
             element={<InventoryPage />}
           />
 
-          {/* <Route
+          <Route
             path="/moderator/reports"
             element={<ReportPage />}
-          /> */}
+          />
         </Route>
       </Route>
 

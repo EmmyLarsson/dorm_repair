@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:student_dorm/color/colors.dart';
+import 'package:student_dorm/models/repair_detail_model.dart' show RepairCompletionItem;
+import 'package:student_dorm/widgets/repair_detail/completion_item_card.dart';
 
 const double kRadiusXl = 24;
 const double kRadiusLg = 16;
@@ -71,9 +73,11 @@ StepVisual stepVisual(String stepCode) {
     case 'in_progress':
       return const StepVisual(Icons.build, kBlue, kBlueDark, 'อยู่ระหว่างดำเนินการซ่อม',
           'ช่างกำลังดำเนินการซ่อมแซมตามวันนัดหมายที่กำหนดไว้');
+    // การ์ดนี้โชว์เฉพาะตอน "ส่งงานแก้ไขรอบใหม่" (หลังคำร้องอุทธรณ์อนุมัติ) ใช้ไอคอนส่งงาน ไม่ใช้ติ๊กเขียว
+    // เพราะยังไม่ใช่จุดจบ — ต้องรอนักศึกษากดยอมรับ
     case 'completed':
-      return const StepVisual(Icons.check_circle, Color(0xFF4ADE80), kGreenDark, 'งานซ่อมเสร็จสิ้น',
-          'การซ่อมแซมดำเนินการเสร็จสิ้นเรียบร้อยแล้ว ขอบคุณที่แจ้งซ่อมกับเรา');
+      return const StepVisual(Icons.send, kBlue, kBlueDark, 'ส่งงานให้ตรวจสอบ',
+          'เจ้าหน้าที่ส่งงานซ่อมให้คุณตรวจสอบ');
     case 'cancelled':
       return const StepVisual(Icons.cancel, kRsError, kRsError, 'คำร้องแจ้งซ่อมถูกยกเลิก', '');
     case 'appointment_cancelled':
@@ -81,9 +85,15 @@ StepVisual stepVisual(String stepCode) {
     case 'accepted':
       return const StepVisual(Icons.verified, Color(0xFF4ADE80), kGreenDark, 'นักศึกษายอมรับผลการซ่อม',
           'นักศึกษาตรวจสอบผลการซ่อมแล้วยืนยันว่าเรียบร้อย ถือว่างานซ่อมนี้เสร็จสิ้นสมบูรณ์');
+    case 'declined':
+      return const StepVisual(Icons.cancel, kRsError, kRsError, 'นักศึกษาไม่ยอมรับผลการซ่อม',
+          'นักศึกษาตรวจสอบผลการซ่อมแล้วไม่ยอมรับ หลังใช้สิทธิ์ยื่นคำร้องครบแล้ว งานซ่อมนี้ปิดเป็น "ซ่อมไม่สำเร็จ"');
     case 'complaint_filed':
       return const StepVisual(Icons.report_problem, kAmber, kAmberDark, 'ยื่นคำร้องแจ้งแก้ไขงานซ่อม',
           'นักศึกษาแจ้งว่ายังไม่พอใจผลการซ่อม รอเจ้าหน้าที่ตรวจสอบคำร้อง');
+    case 'complaint_reviewing':
+      return const StepVisual(Icons.manage_search, Color(0xFFFCD34D), kAmberDark, 'เจ้าหน้าที่กำลังตรวจสอบคำร้อง',
+          'เจ้าหน้าที่เปิดดูคำร้องของคุณแล้ว และกำลังพิจารณา');
     case 'complaint_approved':
       return const StepVisual(Icons.build_circle, kBlue, kBlueDark, 'อนุมัติคำร้อง กำลังแก้ไขงานซ่อม',
           'เจ้าหน้าที่รับทราบคำร้องและกำลังดำเนินการแก้ไขงานซ่อมให้ใหม่');
@@ -168,12 +178,22 @@ class SimpleTimelineCard extends StatelessWidget {
   final String title;
   final String date;
   final String description;
+  // ถ้าใส่ onTap การ์ดจะกดได้ และมีแถว "ดูรายละเอียด" ท้ายการ์ด (สไตล์เดียวกับ RequestSubmittedCard)
+  final VoidCallback? onTap;
+  final String tapLabel;
 
-  const SimpleTimelineCard({super.key, required this.title, required this.date, required this.description});
+  const SimpleTimelineCard({
+    super.key,
+    required this.title,
+    required this.date,
+    required this.description,
+    this.onTap,
+    this.tapLabel = 'ดูรายละเอียด',
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final card = Container(
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(kRadiusLg),
@@ -202,12 +222,49 @@ class SimpleTimelineCard extends StatelessWidget {
           ),
           Padding(
             padding: const EdgeInsets.all(14),
-            child: Text(
-              description,
-              style: const TextStyle(fontSize: 13, height: 1.65, color: kTextMuted),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  description,
+                  // สีเดียวกับรายละเอียดในการ์ด "ส่งคำร้องแจ้งซ่อมสำเร็จ" (kText) — เดิมเป็น kTextMuted จางเกินอ่านยาก
+                  style: const TextStyle(fontSize: 13, height: 1.65, color: kText),
+                ),
+                if (onTap != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.only(top: 10),
+                      decoration: const BoxDecoration(border: Border(top: BorderSide(color: kGray200))),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.visibility, size: 15, color: kBlueDark),
+                          const SizedBox(width: 6),
+                          Text(
+                            tapLabel,
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: kBlueDark),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
         ],
+      ),
+    );
+
+    if (onTap == null) return card;
+
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(kRadiusLg),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(kRadiusLg),
+        onTap: onTap,
+        child: card,
       ),
     );
   }
@@ -327,9 +384,11 @@ class AppointmentCard extends StatelessWidget {
   final String? notes;
   final VoidCallback onCopyPhone;
   final bool phoneCopied;
+  final bool isRevisionRound;
 
   const AppointmentCard({
     super.key,
+    this.isRevisionRound = false,
     required this.date,
     required this.appointmentDate,
     required this.technicianName,
@@ -346,6 +405,9 @@ class AppointmentCard extends StatelessWidget {
     // step_detail จาก backend ขึ้นต้นด้วย "เลื่อนกำหนดการซ่อมเป็น..." เฉพาะตอนเลื่อนนัดจากที่เคยมีอยู่แล้ว
     // (ดู assignTechnician ใน server/models/repair_request.js) ใช้เช็คว่าควรโชว์หัวข้อไหน
     final isReschedule = notes != null && notes!.startsWith('เลื่อน');
+    // นัดที่ระบบจัดคิวให้เองตอนอนุมัติ (autoScheduleIfAllowed ฝั่ง backend ขึ้นต้นข้อความด้วย "ระบบจัดคิว...")
+    // — นักศึกษาควรรู้ว่าวันนี้ไม่ได้มาจากการนัดกับเจ้าหน้าที่ และเลื่อนได้ถ้าช่างไม่ว่าง
+    final isAutoScheduled = notes != null && notes!.startsWith('ระบบจัดคิว');
     // notes ทั้งก้อนตอนนี้คือประโยคที่ backend แต่งไว้ (วันที่+ช่วงเวลาซ้ำกับกล่องด้านบนแล้ว) —
     // แกะเอาแค่หมายเหตุจริงที่เจ้าหน้าที่พิมพ์เอง (อยู่ในวงเล็บท้ายสุด) มาโชว์แทนทั้งประโยค
     final userNote = notes != null ? RegExp(r'\(([^)]*)\)$').firstMatch(notes!)?.group(1) : null;
@@ -384,7 +446,9 @@ class AppointmentCard extends StatelessWidget {
                         child: Text('ล่าสุด', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: kBlueDark)),
                       ),
                       Text(
-                        isReschedule ? 'เลื่อนกำหนดการนัดหมาย' : 'ได้รับวันนัดหมายการซ่อม',
+                        isRevisionRound
+                            ? (isReschedule ? 'เลื่อนนัดหมายรอบแก้ไข' : 'นัดหมายรอบแก้ไข')
+                            : (isReschedule ? 'เลื่อนกำหนดการนัดหมาย' : 'ได้รับวันนัดหมายการซ่อม'),
                         style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: kText),
                       ),
                     ],
@@ -447,6 +511,13 @@ class AppointmentCard extends StatelessWidget {
                     ],
                   ),
                 ),
+                if (isAutoScheduled) ...[
+                  const Text(
+                    'ระบบจัดคิวนัดหมายให้อัตโนมัติ หากไม่สะดวกหรือมีเหตุจำเป็น เจ้าหน้าที่จะแจ้งเลื่อนให้ทราบ',
+                    style: TextStyle(fontSize: 12.5, color: kTextMuted, height: 1.5),
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 if (userNote != null && userNote.isNotEmpty) ...[
                   Text(userNote, style: const TextStyle(fontSize: 12.5, color: kTextMuted, height: 1.5)),
                   const SizedBox(height: 12),
@@ -668,6 +739,76 @@ class EmptyTimeline extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 32),
       child: Center(
         child: Text('ยังไม่มีความเคลื่อนไหว', style: TextStyle(fontSize: 13, color: kTextMuted)),
+      ),
+    );
+  }
+}
+
+/// การ์ดรายงานผลซ่อม "1 รอบ" ฝังอยู่ใน timeline ตรงตำแหน่งที่ "ส่งงาน" เกิดขึ้นจริง (round 0 = รอบซ่อมแรก,
+/// round N = รอบแก้ไขครั้งที่ N) — แทนที่การ์ดสรุปด้านบนสุดของหน้าเดิมที่โชว์แค่รอบล่าสุด ให้ timeline เป็น
+/// ที่เดียวที่ดูรายงานได้ ครบทุกรอบตามลำดับเวลาจริง ไม่มี state ของตัวเอง จึงเป็น StatelessWidget
+class CompletionReportTimelineCard extends StatelessWidget {
+  final int round;
+  final String date;
+  final List<RepairCompletionItem> items;
+
+  const CompletionReportTimelineCard({
+    super.key,
+    required this.round,
+    required this.date,
+    required this.items,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final title = round == 0 ? 'ส่งงานซ่อมให้ตรวจสอบ' : 'ส่งงานแก้ไขรอบที่ $round ให้ตรวจสอบ';
+    final reportLabel = round == 0 ? 'รายงานการซ่อม' : 'รายงานการแก้ไขครั้งที่ $round';
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(kRadiusLg),
+        border: Border.all(color: kGray200, width: 1.5),
+        boxShadow: const [BoxShadow(color: Color(0x0F000000), blurRadius: 14, offset: Offset(0, 2))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+            decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: kGray200))),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: kText)),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(date, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: kTextMuted)),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(reportLabel, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: kTextMuted)),
+                const SizedBox(height: 10),
+                if (items.isEmpty)
+                  const Text('ยังไม่มีรายงาน', style: TextStyle(fontSize: 13, color: kTextMuted))
+                else
+                  for (final item in items) ...[
+                    CompletionItemCard(item: item),
+                    const SizedBox(height: 10),
+                  ],
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

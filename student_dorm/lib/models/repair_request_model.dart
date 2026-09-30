@@ -39,6 +39,8 @@ class RepairRequestModel {
     // print(json['progress_status_name']);
     // print(json['report_date']);
 
+    // มีคำร้องค้างตอนนี้เป็นสถานะจริงแล้ว (progress_status_id = 7 "รอตรวจสอบคำร้อง") ไม่ต้องคำนวณ/
+    // ปลอมชื่อสถานะเองอีกต่อไป — statusName ที่ backend ส่งมาคือชื่อจริงของสถานะนั้นๆ อยู่แล้ว
     return RepairRequestModel(
       requestId: json['request_id'] as int,
       caseCode: json['case_code'] as String,

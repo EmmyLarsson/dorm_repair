@@ -26,6 +26,25 @@ class _LoginScreenState extends State<LoginScreen> {
   bool rememberMe = false;
   bool _obscurePassword = true; // ควบคุมการแสดง/ซ่อนรหัสผ่าน (เหมือนปุ่มตาบนเว็บ)
 
+  @override
+  void initState() {
+    super.initState();
+    _loadRememberedUsername();
+  }
+
+  // เช็คบอกซ์ "จดจำฉัน" มีอยู่แล้วในหน้าจอ แต่ไม่เคยผูก logic ไว้เลย (ติ๊กแล้วไม่มีอะไรเกิดขึ้นจริง)
+  // เติม logic ให้จำแค่ username ลงเครื่อง (SharedPreferences) เท่านั้น — ไม่จำ password ตามที่ยืนยันไว้
+  Future<void> _loadRememberedUsername() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedUsername = prefs.getString('remembered_username');
+    if (savedUsername != null && savedUsername.isNotEmpty) {
+      setState(() {
+        _usernameEditingController.text = savedUsername;
+        rememberMe = true;
+      });
+    }
+  }
+
   @override // เติม @override นำหน้า build widget ตามมาตรฐาน
   Widget build(BuildContext context) {
     final textTheme = GoogleFonts.sarabunTextTheme(Theme.of(context).textTheme);
@@ -511,6 +530,13 @@ class _LoginScreenState extends State<LoginScreen> {
       await prefs.setString("access_token", json["data"]["access_token"]);
       await prefs.setString("username", _usernameEditingController.text);
       await prefs.setString("image_url", json["data"]["image_url"] ?? "");
+
+      // จำแค่ username เท่านั้นตอนติ๊ก "จดจำฉัน" — ไม่เก็บ password ไว้เด็ดขาด
+      if (rememberMe) {
+        await prefs.setString("remembered_username", _usernameEditingController.text);
+      } else {
+        await prefs.remove("remembered_username");
+      }
 
       print("access_token${json["data"]["access_token"]}");
       return (

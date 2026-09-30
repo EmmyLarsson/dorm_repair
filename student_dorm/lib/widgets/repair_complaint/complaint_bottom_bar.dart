@@ -7,8 +7,16 @@ import 'package:student_dorm/color/colors.dart';
 class ComplaintBottomBar extends StatelessWidget {
   final bool isSubmitting;
   final VoidCallback onSubmit;
+  final String label;
+  final String submittingLabel;
 
-  const ComplaintBottomBar({super.key, required this.isSubmitting, required this.onSubmit});
+  const ComplaintBottomBar({
+    super.key,
+    required this.isSubmitting,
+    required this.onSubmit,
+    this.label = 'ส่งคำร้อง',
+    this.submittingLabel = 'กำลังส่ง...',
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -41,7 +49,7 @@ class ComplaintBottomBar extends StatelessWidget {
                   const Icon(Icons.send, color: Colors.white, size: 20),
                   const SizedBox(width: 8),
                   Text(
-                    isSubmitting ? 'กำลังส่ง...' : 'ส่งคำร้อง',
+                    isSubmitting ? submittingLabel : label,
                     style: GoogleFonts.sarabun(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white),
                   ),
                 ],

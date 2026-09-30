@@ -675,11 +675,13 @@ class _EvaluationScreenState extends State<EvaluationScreen> {
                 maxLines: 4,
                 maxLength: _maxFeedbackLength,
                 onChanged: (_) => setState(() {}),
-                style: GoogleFonts.inter(fontSize: 15, color: kRsOnSurface),
+                // Inter เป็นฟอนต์ Latin-only ไม่มีตัวอักษรไทย ใช้กับข้อความไทยแล้วหลุดไป fallback
+                // เป็นฟอนต์ระบบเริ่มต้นแทน หน้าตาต่างจาก Sarabun ที่ใช้อยู่ทุกจุดอื่นในหน้านี้
+                style: GoogleFonts.sarabun(fontSize: 15, color: kRsOnSurface),
                 decoration: InputDecoration(
                   counterText: '',
                   hintText: 'โปรดระบุข้อเสนอแนะเพื่อพัฒนาคุณภาพการซ่อม...',
-                  hintStyle: GoogleFonts.inter(fontSize: 15, color: const Color(0xFFC0B8A8)),
+                  hintStyle: GoogleFonts.sarabun(fontSize: 15, color: const Color(0xFFC0B8A8)),
                   filled: true,
                   fillColor: kRsFieldBg,
                   contentPadding: const EdgeInsets.fromLTRB(16, 13, 16, 28),

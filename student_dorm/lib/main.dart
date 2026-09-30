@@ -1,9 +1,21 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:student_dorm/login_screen.dart';
 
 void main() {
   runApp(const MyApp());
+}
+
+// ScrollBehavior เริ่มต้นของ Flutter ไม่รองรับการลากเมาส์เพื่อเลื่อน (รองรับแค่นิ้ว/ปากกา) ทำให้
+// widget เลื่อนแนวนอนแบบ SingleChildScrollView (เช่นแถบสถานะหน้าแรก) ลากด้วยเมาส์ไม่ขยับเลยตอนทดสอบ
+// บนเว็บ/เดสก์ท็อป — เพิ่ม PointerDeviceKind.mouse เข้าไปในลิสต์อุปกรณ์ที่ลากแล้วเลื่อนได้
+class _AppScrollBehavior extends MaterialScrollBehavior {
+  @override
+  Set<PointerDeviceKind> get dragDevices => {
+        ...super.dragDevices,
+        PointerDeviceKind.mouse,
+      };
 }
 
 class MyApp extends StatelessWidget {
@@ -14,6 +26,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Flutter Demo',
+      scrollBehavior: _AppScrollBehavior(),
       theme: ThemeData(
         textTheme: GoogleFonts.sarabunTextTheme(),
         // This is the theme of your application.

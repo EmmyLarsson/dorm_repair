@@ -5,7 +5,14 @@ import 'package:student_dorm/color/colors.dart';
 /// AppBar ของหน้ายื่นคำร้องแจ้งแก้ไข — เนื้อหาคงที่ทั้งหมด ไม่มี state ของตัวเอง
 /// จึงเป็น StatelessWidget ได้ (ปุ่มย้อนกลับใช้ Navigator ผ่าน context ตรงๆ ไม่ต้องรับ callback)
 class ComplaintAppBar extends StatelessWidget {
-  const ComplaintAppBar({super.key});
+  final String title;
+  final String subtitle;
+
+  const ComplaintAppBar({
+    super.key,
+    this.title = 'ยื่นคำร้องแจ้งแก้ไข',
+    this.subtitle = 'บอกเราว่าผลการซ่อมยังมีจุดไหนไม่เรียบร้อย',
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -39,12 +46,12 @@ class ComplaintAppBar extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'ยื่นคำร้องแจ้งแก้ไข',
+                    title,
                     style: GoogleFonts.sarabun(fontSize: 20, fontWeight: FontWeight.w800, color: kRsOnPrimary, letterSpacing: -0.3, height: 1.2),
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'บอกเราว่าผลการซ่อมยังมีจุดไหนไม่เรียบร้อย',
+                    subtitle,
                     style: GoogleFonts.sarabun(fontSize: 11.5, fontWeight: FontWeight.w500, color: kRsOnPrimary.withValues(alpha: 0.52)),
                   ),
                 ],

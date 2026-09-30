@@ -76,6 +76,7 @@ function PersonnelFormModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [profileImagePreview, setProfileImagePreview] = useState(null);
+  const [showPassword, setShowPassword] = useState(false);
   const profileImageInputRef = useRef(null);
 
   useEffect(() => {
@@ -87,7 +88,9 @@ function PersonnelFormModal({
         firstname: person.firstname,
         lastname: person.lastname,
         phone: person.phone,
-        username: '',
+        // แสดง username เดิมให้เห็นว่าตอนนี้คือชื่ออะไร (แก้แล้วค่อยพิมพ์ทับ) — ต่างจาก password
+        // ที่ต้องเว้นว่างเสมอเพราะเก็บเป็น hash ในฐานข้อมูล ไม่มีทางดึงค่าจริงกลับมาโชว์ได้
+        username: person.username || '',
         password: '',
         roomNumber: person.roomNumber || '',
         positionId: person.positionId ? String(person.positionId) : '',
@@ -358,13 +361,24 @@ function PersonnelFormModal({
 
               <div className="flex flex-col gap-2">
                 <label className="text-sm font-bold">Password</label>
-                <input
-                  type="text"
-                  placeholder={mode === 'edit' ? 'เว้นว่างไว้ถ้าไม่ต้องการเปลี่ยน' : ''}
-                  value={form.password}
-                  onChange={(e) => setField('password', e.target.value)}
-                  className={inputClass('password')}
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder={mode === 'edit' ? 'เว้นว่างไว้ถ้าไม่ต้องการเปลี่ยน' : ''}
+                    value={form.password}
+                    onChange={(e) => setField('password', e.target.value)}
+                    className={`${inputClass('password')} pr-11`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    <span className="material-symbols-outlined text-lg">
+                      {showPassword ? 'visibility_off' : 'visibility'}
+                    </span>
+                  </button>
+                </div>
                 {errors.password && <p className="text-xs text-red-600">{errors.password}</p>}
               </div>
             </div>
@@ -400,13 +414,24 @@ function PersonnelFormModal({
 
               <div className="flex flex-col gap-2">
                 <label className="text-sm font-bold">Password</label>
-                <input
-                  type="text"
-                  placeholder={mode === 'edit' ? 'เว้นว่างไว้ถ้าไม่ต้องการเปลี่ยน' : ''}
-                  value={form.password}
-                  onChange={(e) => setField('password', e.target.value)}
-                  className={inputClass('password')}
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder={mode === 'edit' ? 'เว้นว่างไว้ถ้าไม่ต้องการเปลี่ยน' : ''}
+                    value={form.password}
+                    onChange={(e) => setField('password', e.target.value)}
+                    className={`${inputClass('password')} pr-11`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    <span className="material-symbols-outlined text-lg">
+                      {showPassword ? 'visibility_off' : 'visibility'}
+                    </span>
+                  </button>
+                </div>
                 {errors.password && <p className="text-xs text-red-600">{errors.password}</p>}
               </div>
             </div>

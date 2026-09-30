@@ -12,6 +12,7 @@ import 'package:student_dorm/widgets/report_submit/personal_info_form.dart';
 import 'package:student_dorm/widgets/report_submit/work_type_chip.dart';
 import 'package:student_dorm/widgets/report_submit/image_preview_grid.dart';
 import 'package:student_dorm/widgets/report_submit/existing_photo_grid.dart';
+import 'package:student_dorm/widgets/entry_permission_card.dart';
 
 class ReportSubmitScreen extends StatefulWidget {
   const ReportSubmitScreen({super.key, this.requestId = 0});
@@ -1081,137 +1082,13 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
           ),
           const SizedBox(height: 14),
 
-          // Entry permission info box
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 13),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFFEFF2FF), Color(0xFFE8EEFF)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(15),
-              border: Border.all(color: const Color(0xFFC5D0F5)),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(Icons.info, size: 18, color: kRsBlue),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'การเข้าซ่อมในห้องพัก',
-                        style: GoogleFonts.sarabun(
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w700,
-                          color: kRsOnSurface,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'อนุญาตให้ช่างเข้าซ่อมในกรณีที่ท่านไม่อยู่ในห้อง',
-                        style: GoogleFonts.sarabun(
-                          fontSize: 11.5,
-                          color: kRsOnSurfaceVar,
-                          height: 1.55,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-
-          Row(
-            children: [
-              Expanded(
-                child: _permButton(
-                  label: 'อนุญาต',
-                  icon: Icons.check_circle,
-                  isActive: _permission == 'yes',
-                  activeColor: kRsGreen,
-                  activeBg: const LinearGradient(
-                    colors: [Color(0xFFF0FAF0), Color(0xFFE8F5E9)],
-                  ),
-                  onTap: () => _setPermission('yes'),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _permButton(
-                  label: 'ไม่อนุญาต',
-                  icon: Icons.cancel,
-                  isActive: _permission == 'no',
-                  activeColor: kRsError,
-                  activeBg: const LinearGradient(
-                    colors: [Color(0xFFFFF2F1), Color(0xFFFFE8E6)],
-                  ),
-                  onTap: () => _setPermission('no'),
-                ),
-              ),
-            ],
+          // Entry permission — ย้ายไปใช้ widget กลาง (lib/widgets/entry_permission_card.dart) ร่วมกับ
+          // หน้ายื่นอุทธรณ์ (repair_complaint_screen.dart) แทนโค้ดซ้ำ เพื่อให้หน้าตาตรงกันทุกจุดเสมอ
+          EntryPermissionCard(
+            allowEntry: _permission == 'yes' ? true : (_permission == 'no' ? false : null),
+            onSelect: (value) => _setPermission(value ? 'yes' : 'no'),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _permButton({
-    required String label,
-    required IconData icon,
-    required bool isActive,
-    required Color activeColor,
-    required Gradient activeBg,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 10),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(15),
-          border: Border.all(
-            color: isActive ? activeColor : kRsFieldBorder,
-            width: 1.5,
-          ),
-          color: isActive ? null : kRsFieldBg,
-          gradient: isActive ? activeBg : null,
-          boxShadow: isActive
-              ? [
-                  BoxShadow(
-                    color: activeColor.withValues(alpha: 0.14),
-                    blurRadius: 12,
-                    offset: const Offset(0, 3),
-                  ),
-                ]
-              : null,
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              size: 18,
-              color: isActive ? activeColor : kRsOnSurfaceVar,
-            ),
-            const SizedBox(width: 7),
-            Text(
-              label,
-              style: GoogleFonts.sarabun(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: isActive ? activeColor : kRsOnSurfaceVar,
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }

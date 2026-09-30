@@ -18,9 +18,10 @@ const equipment = require('./models/equipment');
 const equipment_type = require('./models/equipment_type');
 const unit = require('./models/unit');
 const equipment_photo = require('./models/equipment_photo');
-const repair_completion_photo = require('./models/repair_completion_photo');
+const repair_completion_item = require('./models/repair_completion_item');
 const repair_evaluation = require('./models/repair_evaluation');
 const repair_complaint = require('./models/repair_complaint');
+const notification = require('./models/notification');
 const db_pool = require('./libs/db_pool');
 const { uploadRepairPhoto, uploadEquipmentPhoto, uploadProfilePhoto, uploadCompletionPhoto, uploadEvaluationPhoto, uploadComplaintPhoto } = require('./libs/upload');
 
@@ -199,6 +200,27 @@ app.get("/api/repair_request/get_summary", checkAccessToken, async (req, res) =>
     res.json(response);
 });
 
+// ระบบแจ้งเตือนฝั่งเจ้าหน้าที่ — feed เดียวใช้ร่วมกันทุกคน (ไม่แยกตามคน ตามที่ตกลงกัน) เห็นเฉพาะสิทธิ์
+// เจ้าหน้าที่ (requireRole([2])) เพราะเป็นเรื่องภายในของทีมงาน ไม่ใช่ข้อมูลที่นักศึกษาควรเห็น
+app.get("/api/notifications", checkAccessToken, requireRole([2]), async (req, res) => {
+    const parsedLimit = parseInt(req.query.limit, 10);
+    const limit = Number.isInteger(parsedLimit) && parsedLimit > 0 && parsedLimit <= 100 ? parsedLimit : 20;
+
+    const response = await notification.getRecent(limit);
+    res.json(response);
+});
+
+app.post("/api/notifications/:id/read", checkAccessToken, requireRole([2]), async (req, res) => {
+    const notificationId = req.params.id;
+    const response = await notification.markAsRead(notificationId);
+    res.json(response);
+});
+
+app.post("/api/notifications/read-all", checkAccessToken, requireRole([2]), async (req, res) => {
+    const response = await notification.markAllAsRead();
+    res.json(response);
+});
+
 app.get("/api/repair_request/get_by_id/:request_id", checkAccessToken, async (req, res) => {
     const requestId = req.params.request_id;
     const response = await repair_request.getRepairRequestById(requestId);
@@ -340,6 +362,26 @@ app.get("/api/repair_request/:request_id/equipment", checkAccessToken, requireRo
     res.json(response);
 });
 
+// มินิปฏิทินเช็คคิวนัดหมายตอนเจ้าหน้าที่นัดหมายเอง (แท็บ "นัดหมาย") — start ต้องเป็น YYYY-MM-DD,
+// days จำกัดไว้ 1-30 กันขอช่วงยาวเกินจำเป็น, exclude_request_id กันนัดเดิมของเคสเดียวกัน (ตอนเลื่อนนัด)
+// มาแย่งที่ตัวเอง ตรงกับ logic เดียวกับ countSlotBookings ที่ใช้ตอนจัดคิวอัตโนมัติ
+app.get("/api/repair_request/slot_availability", checkAccessToken, requireRole([2]), async (req, res) => {
+    const start = req.query.start;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start || '')) {
+        return res.json({ isError: true, data: "", errorMessage: "รูปแบบวันที่ไม่ถูกต้อง" });
+    }
+
+    const days = parseInt(req.query.days, 10) || 7;
+    if (!Number.isInteger(days) || days < 1 || days > 30) {
+        return res.json({ isError: true, data: "", errorMessage: "จำนวนวันต้องอยู่ระหว่าง 1-30" });
+    }
+
+    const excludeRequestId = req.query.exclude_request_id ? parseInt(req.query.exclude_request_id, 10) : undefined;
+
+    const response = await repair_request.getSlotAvailability(start, days, excludeRequestId);
+    res.json(response);
+});
+
 app.post("/api/repair_request/complete", checkAccessToken, async (req, res) => {
     const requestId = req.body.request_id;
 
@@ -366,6 +408,29 @@ app.post("/api/repair_request/accept_completion", checkAccessToken, async (req, 
     res.json(response);
 });
 
+// นักศึกษากด "ไม่ยอมรับ" ผลซ่อม (เฉพาะตอนยื่นคำร้องครบสิทธิ์แล้ว — backend ตรวจใน declineRepairCompletion)
+// ต้องระบุเหตุผล (เหมือนเหตุผลคืนสินค้าฝั่งอีคอมเมิร์ซ) แทนการให้ดาวประเมิน เพราะงานที่ "ไม่สำเร็จ" ไม่ควร
+// ถูกให้คะแนนความพอใจแบบเดียวกับงานที่เสร็จเรียบร้อย เก็บไว้ที่ step_detail ของ timeline 'declined' เหมือน
+// เหตุผลยกเลิกงาน/ปฏิเสธคำร้องที่ใช้คอลัมน์เดิมอยู่แล้ว ไม่ต้องเพิ่มคอลัมน์ใหม่
+app.post("/api/repair_request/decline_completion", checkAccessToken, async (req, res) => {
+    const requestId = req.body.request_id;
+    const studentId = req.decoded.user_id;
+    const reason = (req.body.reason || '').trim();
+
+    if (!(await isOwnRequest(requestId, studentId))) {
+        return res.json({ isError: true, data: "", errorMessage: "ไม่มีสิทธิ์ตัดสินเคสนี้" });
+    }
+    if (!reason) {
+        return res.json({ isError: true, data: "", errorMessage: "กรุณาระบุเหตุผลที่ไม่ยอมรับผลการซ่อม" });
+    }
+    if (reason.length > 500) {
+        return res.json({ isError: true, data: "", errorMessage: "เหตุผลต้องไม่เกิน 500 ตัวอักษร" });
+    }
+
+    const response = await repair_request.declineRepairCompletion(requestId, reason);
+    res.json(response);
+});
+
 app.post("/api/repair_request/complaint", checkAccessToken, (req, res, next) => {
     uploadComplaintPhoto.array('photos', 6)(req, res, (err) => {
         if (err) {
@@ -386,19 +451,124 @@ app.post("/api/repair_request/complaint", checkAccessToken, (req, res, next) => 
         return res.json({ isError: true, data: "", errorMessage: "กรุณาระบุรายละเอียดปัญหา" });
     }
 
+    // ตรวจแค่รูปแบบ (เป็นเลขจำนวนเต็มบวก) ที่นี่ — ตรวจว่า id นี้มีอยู่จริงในตาราง complaint_reason
+    // ที่ repair_complaint.createComplaint (ต้องใช้ conn เดียวกับ transaction)
+    const complaintReasonId = parseInt(req.body.complaint_reason_id, 10);
+    if (!Number.isInteger(complaintReasonId) || complaintReasonId <= 0) {
+        return res.json({ isError: true, data: "", errorMessage: "กรุณาเลือกหมวดหมู่เหตุผล" });
+    }
+
+    // '0'/'1' เท่านั้น — ไม่รับค่าอื่น (เช่นเว้นว่าง) เพราะบังคับให้นักศึกษาเลือกก่อนส่งเสมอ
+    if (req.body.allow_entry !== '0' && req.body.allow_entry !== '1') {
+        return res.json({ isError: true, data: "", errorMessage: "กรุณาเลือกว่าอนุญาตให้ช่างเข้าห้องหรือไม่" });
+    }
+    const allowEntry = req.body.allow_entry === '1' ? 1 : 0;
+
     const photoUrls = (req.files || []).map((file) => `/uploads/repair_complaint_photos/${file.filename}`);
-    const response = await repair_complaint.createComplaint(requestId, complaintText, photoUrls);
+    const response = await repair_complaint.createComplaint(requestId, complaintText, complaintReasonId, allowEntry, photoUrls);
     res.json(response);
 });
 
-app.post("/api/repair_request/complaint/decide", checkAccessToken, async (req, res) => {
+app.post("/api/repair_request/complaint/edit", checkAccessToken, (req, res, next) => {
+    uploadComplaintPhoto.array('photos', 6)(req, res, (err) => {
+        if (err) {
+            return res.json({ isError: true, data: "", errorMessage: err.message || "อัปโหลดรูปภาพไม่สำเร็จ" });
+        }
+        next();
+    });
+}, async (req, res) => {
+    const requestId = req.body.request_id;
+    const complaintId = req.body.complaint_id;
+    const studentId = req.decoded.user_id;
+
+    if (!(await isOwnRequest(requestId, studentId))) {
+        return res.json({ isError: true, data: "", errorMessage: "ไม่มีสิทธิ์แก้ไขคำร้องสำหรับเคสนี้" });
+    }
+
+    const complaintText = (req.body.complaint_text || '').trim();
+    if (!complaintText) {
+        return res.json({ isError: true, data: "", errorMessage: "กรุณาระบุรายละเอียดปัญหา" });
+    }
+
+    const complaintReasonId = parseInt(req.body.complaint_reason_id, 10);
+    if (!Number.isInteger(complaintReasonId) || complaintReasonId <= 0) {
+        return res.json({ isError: true, data: "", errorMessage: "กรุณาเลือกหมวดหมู่เหตุผล" });
+    }
+
+    if (req.body.allow_entry !== '0' && req.body.allow_entry !== '1') {
+        return res.json({ isError: true, data: "", errorMessage: "กรุณาเลือกว่าอนุญาตให้ช่างเข้าห้องหรือไม่" });
+    }
+    const allowEntry = req.body.allow_entry === '1' ? 1 : 0;
+
+    let existingPhotoUrls = [];
+    if (req.body.existing_photo_urls) {
+        try {
+            existingPhotoUrls = JSON.parse(req.body.existing_photo_urls);
+            if (!Array.isArray(existingPhotoUrls)) existingPhotoUrls = [];
+        } catch (e) { existingPhotoUrls = []; }
+    }
+    const newPhotoUrls = (req.files || []).map((file) => `/uploads/repair_complaint_photos/${file.filename}`);
+    if (existingPhotoUrls.length + newPhotoUrls.length > 6) {
+        return res.json({ isError: true, data: "", errorMessage: "แนบรูปภาพได้สูงสุด 6 รูป" });
+    }
+    const photoUrls = [...existingPhotoUrls, ...newPhotoUrls];
+
+    const response = await repair_complaint.editComplaint(complaintId, requestId, complaintText, complaintReasonId, allowEntry, photoUrls);
+    res.json(response);
+});
+
+// เจ้าหน้าที่เปิดดูคำร้องที่รอตัดสินใจ — บันทึกการ์ด "กำลังตรวจสอบ" ใน timeline (ไม่ซ้ำถ้าเรียกหลายครั้ง)
+app.post("/api/repair_request/complaint/reviewing", checkAccessToken, requireRole([2]), async (req, res) => {
+    const response = await repair_complaint.markReviewing(req.body.request_id);
+    res.json(response);
+});
+
+// เดิมไม่มี requireRole — นักศึกษาที่มี token ก็ยิงตัดสินคำร้องตัวเองได้ ตัดสินใจคำร้องเป็นสิทธิ์เจ้าหน้าที่เท่านั้น
+app.post("/api/repair_request/complaint/decide", checkAccessToken, requireRole([2]), async (req, res) => {
     const { complaint_id, request_id, decision } = req.body;
 
     if (decision !== 'approved' && decision !== 'rejected') {
         return res.json({ isError: true, data: "", errorMessage: "decision ต้องเป็น approved หรือ rejected เท่านั้น" });
     }
 
-    const response = await repair_complaint.decideComplaint(complaint_id, request_id, decision);
+    // ปฏิเสธต้องระบุเหตุผลเสมอ (นักศึกษาจะเห็นในไทม์ไลน์)
+    const reason = (req.body.reason || '').trim();
+    if (decision === 'rejected') {
+        if (!reason) {
+            return res.json({ isError: true, data: "", errorMessage: "กรุณาระบุเหตุผลที่ปฏิเสธคำร้อง" });
+        }
+        if (reason.length > 500) {
+            return res.json({ isError: true, data: "", errorMessage: "เหตุผลต้องไม่เกิน 500 ตัวอักษร" });
+        }
+    }
+
+    const response = await repair_complaint.decideComplaint(complaint_id, request_id, decision, decision === 'rejected' ? reason : null);
+    res.json(response);
+});
+
+// เจ้าหน้าที่ปรับจำนวนครั้งที่นักศึกษายื่นอุทธรณ์ได้ของ "เคสนี้" (1-5, ค่าเริ่มต้น 2) — เป็นสิทธิ์เจ้าหน้าที่เท่านั้น
+// ตรวจข้อมูลที่ทางเข้า (ไม่พึ่งแค่หน้าจอ): ชนิด/ช่วงของตัวเลข และไม่รับ field เกิน ส่วนกติกาข้อมูลของเคส
+// (ปิดแล้วห้ามแก้ / ห้ามต่ำกว่าที่ยื่นไปแล้ว) ตรวจใน repair_complaint.setMaxComplaints
+const MIN_COMPLAINT_LIMIT = 1;
+const MAX_COMPLAINT_LIMIT = 5;
+app.post("/api/repair_request/complaint/limit", checkAccessToken, requireRole([2]), async (req, res) => {
+    const { request_id, max_complaints, ...extraFields } = req.body;
+
+    if (Object.keys(extraFields).length > 0) {
+        return res.json({ isError: true, data: "", errorMessage: "ข้อมูลที่ส่งมามีฟิลด์ที่ไม่รองรับ" });
+    }
+    if (!Number.isInteger(request_id) || request_id <= 0) {
+        return res.json({ isError: true, data: "", errorMessage: "รหัสเคสไม่ถูกต้อง" });
+    }
+    if (!Number.isInteger(max_complaints) || max_complaints < MIN_COMPLAINT_LIMIT || max_complaints > MAX_COMPLAINT_LIMIT) {
+        return res.json({
+            isError: true,
+            data: "",
+            errorMessage: `จำนวนครั้งที่ยื่นอุทธรณ์ต้องเป็นจำนวนเต็ม ${MIN_COMPLAINT_LIMIT}-${MAX_COMPLAINT_LIMIT}`
+        });
+    }
+
+    const response = await repair_complaint.setMaxComplaints(request_id, max_complaints);
     res.json(response);
 });
 
@@ -408,7 +578,16 @@ app.get("/api/repair_request/:request_id/complaints", checkAccessToken, async (r
     res.json(response);
 });
 
-app.post("/api/repair_request/:request_id/report", checkAccessToken, (req, res, next) => {
+// รายงานผลซ่อมแยกตามรายการงานซ่อม (repair_type) ของเคส — ใช้ทั้งฝั่ง moderator เปิด "จัดการ"
+// และฝั่งนักศึกษาดูผลซ่อม
+app.get("/api/repair_request/:request_id/completion_items", checkAccessToken, async (req, res) => {
+    const requestId = req.params.request_id;
+    const response = await repair_completion_item.getByRequestId(requestId);
+    res.json(response);
+});
+
+// บันทึกรายงาน+รูปของ "1 รายการงานซ่อม" — moderator กด "บันทึก" ทีละการ์ด
+app.post("/api/repair_request/:request_id/completion_items/:repair_type_id/report", checkAccessToken, requireRole([2]), (req, res, next) => {
     uploadCompletionPhoto.array('photos', 6)(req, res, (err) => {
         if (err) {
             return res.json({ isError: true, data: "", errorMessage: err.message || "อัปโหลดรูปภาพไม่สำเร็จ" });
@@ -417,25 +596,29 @@ app.post("/api/repair_request/:request_id/report", checkAccessToken, (req, res, 
     });
 }, async (req, res) => {
     const requestId = req.params.request_id;
+    const repairTypeId = req.params.repair_type_id;
     const reportText = req.body.report_text;
 
-    const reportResponse = await repair_request.saveRepairReport(requestId, reportText);
-    if (reportResponse.isError) {
-        return res.json(reportResponse);
+    // existing_photo_urls = รายชื่อรูปเดิมที่ยังอยากเก็บไว้ (JSON string array) — mirror pattern เดียวกับ
+    // จุดอื่นๆ ในไฟล์นี้ที่รองรับแก้ไขรูปแบบ "เก็บบางรูป + เพิ่มรูปใหม่"
+    let existingPhotoUrls = [];
+    if (req.body.existing_photo_urls) {
+        try {
+            existingPhotoUrls = JSON.parse(req.body.existing_photo_urls);
+            if (!Array.isArray(existingPhotoUrls)) existingPhotoUrls = [];
+        } catch (e) {
+            existingPhotoUrls = [];
+        }
     }
 
-    if (req.files && req.files.length > 0) {
-        const photoUrls = req.files.map((file) => `/uploads/repair_completion_photos/${file.filename}`);
-        const photoResponse = await repair_completion_photo.replacePhotos(requestId, photoUrls);
-        return res.json(photoResponse);
+    const newPhotoUrls = (req.files || []).map((file) => `/uploads/repair_completion_photos/${file.filename}`);
+
+    if (existingPhotoUrls.length + newPhotoUrls.length > 6) {
+        return res.json({ isError: true, data: "", errorMessage: "แนบรูปภาพได้สูงสุด 6 รูป" });
     }
 
-    res.json(reportResponse);
-});
-
-app.get("/api/repair_request/:request_id/completion_photos", checkAccessToken, async (req, res) => {
-    const requestId = req.params.request_id;
-    const response = await repair_completion_photo.getPhotosByRequestId(requestId);
+    const photoUrls = [...existingPhotoUrls, ...newPhotoUrls];
+    const response = await repair_completion_item.saveOneItemReport(requestId, repairTypeId, reportText, photoUrls);
     res.json(response);
 });
 

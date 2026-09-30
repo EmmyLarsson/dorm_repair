@@ -1,6 +1,7 @@
 import {useEffect, useMemo, useState,} from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppAPI } from '../utils/appApi';
+import { appointmentToastLabel } from '../utils/appointmentLabel';
 import { RepairRequestModel } from '../models/repairRequestModel';
 import StatusCard from '../components/StatusCard';
 import RepairCard from '../components/RepairCard';
@@ -48,8 +49,10 @@ async function getHomeDashboard() {
     pending: 0,
     waiting: 0,
     completed: 0,
+    pendingComplaintReview: 0,
     underRevision: 0,
     success: 0,
+    failed: 0,
   };
 
   for (const row of summaryJson.data ?? []) {
@@ -61,10 +64,14 @@ async function getHomeDashboard() {
       repairSummary.waiting = total;
     } else if (row.progress_status_id === 3) {
       repairSummary.completed = total;
+    } else if (row.progress_status_id === 7) {
+      repairSummary.pendingComplaintReview = total;
     } else if (row.progress_status_id === 5) {
       repairSummary.underRevision = total;
     } else if (row.progress_status_id === 6) {
       repairSummary.success = total;
+    } else if (row.progress_status_id === 8) {
+      repairSummary.failed = total;
     }
   }
 
@@ -99,6 +106,7 @@ const initialDashboard = {
     completed: 0,
     underRevision: 0,
     success: 0,
+    failed: 0,
   },
 
   repairs: [],
@@ -134,6 +142,16 @@ function HomePage() {
    ดึงข้อมูลหน้า Home จาก Server
    (แสดงเฉพาะรายการที่ "รอตรวจสอบ" เท่านั้น เคสที่อนุมัติ/ปฏิเสธแล้วจะย้ายไปหน้าจัดการงานซ่อม)
   */
+  // ข้อความแจ้งผลชั่วคราวมุมจอ (รูปแบบเดียวกับหน้าจัดการงานซ่อม/ครุภัณฑ์/บุคลากร) — เดิมหน้านี้อนุมัติแล้วรายการ
+  // หายไปเงียบๆ เจ้าหน้าที่ไม่รู้ว่าสำเร็จหรือไม่ และไม่รู้ว่าระบบจัดนัดหมายให้วันไหน
+  const [toast, setToast] = useState('');
+
+  function showToast(message) {
+    setToast(message);
+    window.clearTimeout(showToast._t);
+    showToast._t = window.setTimeout(() => setToast(''), 2800);
+  }
+
   async function fetchDashboard(silent = false) {
     try {
       if (!silent) {
@@ -243,6 +261,13 @@ function HomePage() {
       }
 
       await fetchDashboard();
+
+      const autoAppointmentDate = response.data?.appointmentDate;
+      showToast(
+        autoAppointmentDate
+          ? `อนุมัติ Case ${repair.caseCode} สำเร็จ — ระบบจัดนัดหมายให้ ${appointmentToastLabel(autoAppointmentDate)}`
+          : `อนุมัติ Case ${repair.caseCode} สำเร็จ — ย้ายไปสถานะ "อยู่ระหว่างซ่อม"`,
+      );
     } catch (approveError) {
       alert(
         approveError instanceof Error
@@ -261,12 +286,15 @@ function HomePage() {
       }
 
       await fetchDashboard();
+      // คืน true ให้ผู้เรียกปิดหน้าต่างเฉพาะเมื่อสำเร็จ (ล้มเหลว = เปิดค้างไว้ ข้อความเหตุผลไม่หาย)
+      return true;
     } catch (rejectError) {
       alert(
         rejectError instanceof Error
           ? rejectError.message
           : 'ปฏิเสธไม่สำเร็จ',
       );
+      return false;
     }
   }
 
@@ -351,7 +379,7 @@ function HomePage() {
           </button>
         </div>
 
-        <div className="grid gap-5 md:grid-cols-5">
+        <div className="grid gap-5 md:grid-cols-7">
           <StatusCard
             icon="pending_actions"
             number={
@@ -380,6 +408,15 @@ function HomePage() {
           />
 
           <StatusCard
+            icon="gavel"
+            number={
+              dashboard.repairSummary.pendingComplaintReview
+            }
+            label="รอตรวจสอบคำร้อง"
+            iconClass="bg-amber-100 text-amber-800"
+          />
+
+          <StatusCard
             icon="build_circle"
             number={
               dashboard.repairSummary.underRevision
@@ -395,6 +432,15 @@ function HomePage() {
             }
             label="สำเร็จ"
             iconClass="bg-emerald-100 text-emerald-800"
+          />
+
+          <StatusCard
+            icon="cancel"
+            number={
+              dashboard.repairSummary.failed
+            }
+            label="ซ่อมไม่สำเร็จ"
+            iconClass="bg-red-100 text-red-800"
           />
         </div>
       </section>
@@ -454,9 +500,12 @@ function HomePage() {
           setViewingRepairId(null);
           handleApprove(repair);
         }}
-        onReject={(repair, reason) => {
-          setViewingRepairId(null);
-          handleReject(repair, reason);
+        onReject={async (repair, reason) => {
+          const succeeded = await handleReject(repair, reason);
+          if (succeeded) {
+            setViewingRepairId(null);
+          }
+          return succeeded;
         }}
       />
 
@@ -470,6 +519,13 @@ function HomePage() {
           handleReject(repair, reason);
         }}
       />
+
+      {toast && (
+        <div className="fixed bottom-8 right-8 z-[200] flex items-center gap-2.5 bg-slate-900 text-white px-5.5 py-3.5 rounded-2xl text-[13.5px] font-semibold shadow-xl">
+          <span className="material-symbols-outlined text-green-400 text-xl">check_circle</span>
+          {toast}
+        </div>
+      )}
     </div>
   );
 }

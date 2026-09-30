@@ -36,8 +36,9 @@ the above, treat these as logical names and ask before renaming directories.
 - Data modeling conventions (must be preserved):
   - Normalized entities with explicit numeric IDs and foreign-key relationships.
   - Enumerated workflow/status values (e.g. `progress_status_id`, repair-type IDs 1–6).
-  - Boolean-like fields expressed as explicit string enums, not raw booleans
-    (e.g. `allow_entry`: `'yes'` / `'no'`).
+  - Boolean-like fields follow what the live schema actually uses — e.g. `allow_entry` is
+    `tinyint(1)` (`1` = allow, `0` = not allow), so mirror that; do not invent a string enum
+    the schema does not have.
 - **Backend/SQL schema changes are off-limits unless explicitly requested.** Reference existing
   models (e.g. `RepairRequestModel`) as-is; do not add fields to satisfy the frontend without
   confirming with the user first, even if the frontend expects them (known gap:
@@ -78,6 +79,14 @@ the above, treat these as logical names and ask before renaming directories.
 - Design tokens centralized in `lib/constants/colors.dart`.
 - Color/design system: navy/gold — `kNavy #1A3A6C`, `kNavyDark #0F2347`, `kGold #FFD700`,
   font **Sarabun** (Thai) alongside Inter / Be Vietnam Pro for buttons/headings.
+- **Never use `GoogleFonts.inter()` (or any Latin-only font) on a `TextField`/`Text` that will
+  contain or display Thai content** (entered text, hint text, labels) — Inter has no Thai glyphs,
+  so Thai characters silently fall back to the platform's default system font, producing a visible
+  font mismatch against the rest of the screen (which is Sarabun). This has recurred more than
+  once (`repair_complaint_screen.dart`'s `complaint_text_card.dart`, `evaluation_screen.dart`'s
+  feedback field) because it was copy-pasted between screens. Use `GoogleFonts.sarabun()` for
+  `style`/`hintStyle` on any field a student/staff member types Thai into, even if the field also
+  accepts Latin/numeric input — Sarabun covers both.
 - Assets: prefer inline SVG / Material Symbols over external image URLs where possible.
 - API access via a shared `AppAPI` class (`AppAPI.get()`, etc.) using Bearer tokens.
 - Status values from the backend are Thai-language strings — match them exactly:
@@ -180,6 +189,13 @@ the above, treat these as logical names and ask before renaming directories.
   modifying schema once its absence is confirmed. (Precedent: almost proposed a new
   `repair_report` column duplicating the already-existing but unused `progress_detail_des`
   column, caught only after the user shared a real SQL dump.)
+- **The latest schema dump is `fitnessfinisher.sql` at the repo root (database `dorm_repair`;
+  the file name is just the user's nickname, not a separate project). Read it first — before
+  proposing or writing anything that touches tables, columns, enums, or seed data — and treat it
+  as the reference for the current schema.** It can lag the live DB, so when a change matters
+  (e.g. a new column or enum value), also verify against the live database (`SHOW CREATE TABLE`
+  via a read-only query). After the user runs a schema change, remind them to re-export the dump
+  so this file stays current; never edit it by hand to "fake" a change that hasn't been applied.
 - **Do not edit files marked as locked/do-not-touch** (e.g. `repair_info.dart`) even if a change
   there would be the most direct fix — propose the change and ask instead.
 - **Do not restyle, redecorate, or restructure existing UI** (e.g. `BrandPanel`) beyond genuine
@@ -209,7 +225,7 @@ the above, treat these as logical names and ask before renaming directories.
   - All prepared-statement queries wrapped with error handling that returns clear,
     non-leaky error responses (no raw SQL errors or stack traces sent to the client).
   - Validate request payloads before touching the database — required fields, correct types,
-    valid enum/ID ranges (status IDs, repair-type IDs 1–6, `allow_entry` in `{'yes','no'}`).
+    valid enum/ID ranges (status IDs, repair-type IDs 1–6, `allow_entry` in `{0, 1}`).
   - Auth middleware failures (`checkAccessToken`) must return a consistent 401/403 shape the
     frontend/mobile can branch on reliably.
 - Frontend (React) / Mobile (Flutter):
