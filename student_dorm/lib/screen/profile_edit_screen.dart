@@ -7,6 +7,7 @@ import 'package:student_dorm/models/student_profile_model.dart';
 import 'package:student_dorm/utils/app_api.dart';
 import 'package:student_dorm/widgets/profile_edit/profile_avatar_picker.dart';
 import 'package:student_dorm/widgets/profile_edit/profile_personal_info_card.dart';
+import 'package:student_dorm/utils/validators.dart';
 
 class ProfileEditScreen extends StatefulWidget {
   const ProfileEditScreen({super.key, required this.profile});
@@ -22,7 +23,13 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   late final TextEditingController _roomController;
 
   bool _errPhone = false;
+  // override ข้อความ error ของเบอร์โทร ตอนที่สาเหตุคือรูปแบบผิด ไม่ใช่แค่ไม่ได้กรอก (null = ใช้ข้อความ
+  // default "กรุณากรอกเบอร์โทรติดต่อ" ที่ ProfilePersonalInfoCard กำหนดไว้)
+  String? _phoneErrorText;
   bool _errRoom = false;
+  // override ข้อความ error ของหมายเลขห้อง ตอนที่สาเหตุคือรูปแบบ/ช่วงตัวเลขผิด ไม่ใช่แค่ไม่ได้กรอก
+  // (null = ใช้ข้อความ default "กรุณากรอกหมายเลขห้องพัก" ที่ ProfilePersonalInfoCard กำหนดไว้)
+  String? _roomErrorText;
   bool _isSaving = false;
   bool _didSave = false;
 
@@ -42,8 +49,23 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
   bool _validateForm() {
     setState(() {
-      _errPhone = _phoneController.text.trim().isEmpty;
-      _errRoom = _roomController.text.trim().isEmpty;
+      final phoneValue = _phoneController.text.trim();
+      if (phoneValue.isEmpty) {
+        _errPhone = true;
+        _phoneErrorText = null; // ใช้ข้อความ default "กรุณากรอกเบอร์โทรติดต่อ"
+      } else {
+        _phoneErrorText = validatePhoneNumber(phoneValue);
+        _errPhone = _phoneErrorText != null;
+      }
+
+      final roomValue = _roomController.text.trim();
+      if (roomValue.isEmpty) {
+        _errRoom = true;
+        _roomErrorText = null; // ใช้ข้อความ default "กรุณากรอกหมายเลขห้องพัก"
+      } else {
+        _roomErrorText = validateRoomNumber(roomValue);
+        _errRoom = _roomErrorText != null;
+      }
     });
     return !(_errPhone || _errRoom);
   }
@@ -192,15 +214,23 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                             phoneController: _phoneController,
                             roomController: _roomController,
                             errorPhone: _errPhone,
+                            phoneErrorText: _phoneErrorText,
                             errorRoom: _errRoom,
+                            roomErrorText: _roomErrorText,
                             onPhoneChanged: (value) {
                               if (value.trim().isNotEmpty && _errPhone) {
-                                setState(() => _errPhone = false);
+                                setState(() {
+                                  _errPhone = false;
+                                  _phoneErrorText = null;
+                                });
                               }
                             },
                             onRoomChanged: (value) {
                               if (value.trim().isNotEmpty && _errRoom) {
-                                setState(() => _errRoom = false);
+                                setState(() {
+                                  _errRoom = false;
+                                  _roomErrorText = null;
+                                });
                               }
                             },
                           ),

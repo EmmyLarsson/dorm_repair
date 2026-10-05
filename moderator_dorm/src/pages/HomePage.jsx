@@ -17,6 +17,7 @@ function mapRepairRequestRow(row) {
     id: model.requestId,
     caseCode: model.caseCode,
     studentName: model.studentName,
+    studentProfileImage: model.studentProfileImage,
     contactPhone: model.contactPhone,
     roomNumber: model.roomNumber,
     allowEntry: model.allowEntry,

@@ -1,6 +1,24 @@
 const pool = require('../libs/db_pool');
 const repairTimeline = require('./repair_timeline');
 const notification = require('./notification');
+const { STALE_FLAG_AFTER_DAYS, AUTO_CLOSE_AFTER_DAYS, RUSH_COOLDOWN_HOURS } = require('../config/thresholds');
+
+// step_code ของ repair_timeline ที่ "เจ้าหน้าที่/ระบบเป็นคนทำ" และนักศึกษาควรได้รับแจ้ง (นิยามที่เดียว ใช้ทั้ง
+// จุดแดงบนการ์ด และรายการแจ้งเตือนของนักศึกษา) — step ที่นักศึกษาทำเอง (submitted, accepted, declined,
+// complaint_filed, student_cancelled) ไม่ใส่ เพราะไม่ต้องแจ้งตัวเองให้รู้
+const STAFF_STEP_CODES = [
+    'reviewing', 'approved', 'appointment', 'appointment_cancelled', 'in_progress', 'completed',
+    'cancelled', 'complaint_reviewing', 'complaint_approved', 'complaint_rejected', 'auto_closed',
+];
+const STAFF_STEP_SQL_LIST = STAFF_STEP_CODES.map((code) => `'${code}'`).join(', '); // ค่าคงที่ในโค้ด ไม่ใช่ input ผู้ใช้
+
+// "YYYY-MM-DD HH:mm:ss" → "5 ตุลาคม 2569 เวลา 15:00 น." สำหรับข้อความที่ backend แต่งให้แอปแสดงตรงๆ
+function formatThaiDateTime(sqlDateTime) {
+    const [datePart, timePart] = sqlDateTime.split(' ');
+    const [year, month, day] = datePart.split('-').map(Number);
+    const [hour, minute] = (timePart || '00:00:00').split(':');
+    return `${day} ${THAI_MONTHS[month - 1]} ${year + 543} เวลา ${hour}:${minute} น.`;
+}
 
 const THAI_MONTHS = [
     'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
@@ -109,9 +127,13 @@ async function autoScheduleIfAllowed(conn, requestId, allowEntryOverride) {
     if (!appointmentDate) return null;
 
     await conn.query("UPDATE repair_request SET appointment_date = ? WHERE request_id = ?", [appointmentDate, requestId]);
+    // ข้อความฝั่งนักศึกษาตั้งใจไม่บอกว่าเป็นการจัดคิวอัตโนมัติ (ไม่ใช่เจ้าหน้าที่นัดเองทีละเคส) เพื่อให้
+    // ความรู้สึกเหมือนมีเจ้าหน้าที่ดูแลจัดการให้จริงๆ — ฝั่ง Flutter (repair_timeline.dart) ตรวจจับข้อความ
+    // นี้ด้วย .startsWith() ตัวเดียวกัน เพื่อตัดสินใจว่าจะโชว์หมายเหตุ "เลื่อนนัดได้ถ้าไม่สะดวก" เพิ่มไหม
+    // (เปลี่ยนข้อความนี้ต้องไปแก้ string ที่ repair_timeline.dart ให้ตรงกันด้วย)
     await repairTimeline.insertTimelineStep(
         conn, requestId, 'appointment',
-        `ระบบจัดคิวนัดหมายซ่อมให้อัตโนมัติ ${formatAppointmentThai(appointmentDate)}`
+        `เจ้าหน้าที่นัดหมายวันซ่อมให้คุณแล้ว ${formatAppointmentThai(appointmentDate)}`
     );
 
     return appointmentDate;
@@ -207,6 +229,16 @@ module.exports = {
           "  rr.request_id, " +
           "  rr.case_code, " +
           "  rr.contact_name AS student_name, " +
+          // รูปโปรไฟล์นักศึกษา ส่งให้เฉพาะเคสที่แจ้งด้วย "ข้อมูลเดิม" ของโปรไฟล์: ชื่อ+เบอร์+ห้องที่บันทึกในเคสต้อง
+          // ตรงกับข้อมูลโปรไฟล์ทั้งสามค่า (ถ้านักศึกษากรอกข้อมูลใหม่ ผู้ติดต่ออาจไม่ใช่เจ้าของรูป จึงไม่ส่ง = NULL)
+          // ระบบไม่ได้เก็บแฟลกว่าเลือกโหมดไหนตอนแจ้ง (ไม่แก้ schema) จึงใช้การเทียบค่า — ถ้านักศึกษาแก้โปรไฟล์ภายหลัง
+          // เคสเก่าที่ค่าไม่ตรงแล้วจะไม่มีรูป; เบอร์ตัด '-' และช่องว่างก่อนเทียบเพราะเคสเก่าเก็บแบบมีขีด
+          // ใช้ subquery แทน JOIN เพื่อไม่ต้องแตะ GROUP BY ด้านล่าง
+          "  (SELECT sp.profile_image FROM student st JOIN person sp ON sp.person_id = st.person_id " +
+          "   WHERE st.student_id = rr.student_id " +
+          "   AND rr.contact_name = CONCAT(sp.firstname, ' ', sp.lastname) " +
+          "   AND REPLACE(REPLACE(rr.contact_phone, '-', ''), ' ', '') = sp.phone " +
+          "   AND rr.target_room = st.room_number) AS student_profile_image, " +
           "  rr.target_room AS room_number, " +
           "  GROUP_CONCAT(rt.repair_type_name SEPARATOR ',') AS type_names, " +
           // เหตุผลเดียวกับใน getRepairRequestById — openManageModal ฝั่ง moderator ใช้ค่าจาก list นี้
@@ -220,7 +252,19 @@ module.exports = {
           "  CONCAT(tp.firstname, ' ', tp.lastname) AS technician_name, " +
           "  DATE_FORMAT(rr.appointment_date, '%Y-%m-%d %H:%i:%s') AS appointment_date, " +
           "  DATE_FORMAT(rr.report_date, '%Y-%m-%d %H:%i:%s') AS report_date, " +
-          "  rr.max_complaints " +
+          "  rr.max_complaints, " +
+          // ฟิลด์สำหรับมอนิเตอร์เจ้าหน้าที่ — flag ทั้งหมดคำนวณที่ DB ด้วย NOW()/CURDATE() (ไม่คำนวณที่ client
+          // กันเวลาเครื่องเจ้าหน้าที่เพี้ยน) ทุก slot นัดยาว 2 ชม. จึงนับว่า "ผ่านนัดแล้ว" เมื่อเลยเวลาเริ่ม+2 ชม.
+          // และทุก flag ผูกกับสถานะ (2/5 = กำลังซ่อม, 3 = รอนักศึกษายืนยัน) เสมอ ไม่ดูแค่วันที่อย่างเดียว
+          "  DATE_FORMAT(rr.finish_date, '%Y-%m-%d %H:%i:%s') AS finish_date, " +
+          "  DATE_FORMAT(rr.rushed_at, '%Y-%m-%d %H:%i:%s') AS rushed_at, " +
+          "  (rr.progress_status_id IN (2, 5) AND DATE(rr.appointment_date) = CURDATE()) AS is_due_today, " +
+          "  (rr.progress_status_id IN (2, 5) AND rr.appointment_date + INTERVAL 2 HOUR < NOW()) AS is_overdue, " +
+          "  (rr.progress_status_id = 3 AND rr.finish_date + INTERVAL ? DAY < NOW()) AS is_stale_unconfirmed, " +
+          "  IF(rr.progress_status_id = 3, DATE_FORMAT(rr.finish_date + INTERVAL ? DAY, '%Y-%m-%d %H:%i:%s'), NULL) AS auto_close_at, " +
+          // จำนวนแจ้งเตือนที่เจ้าหน้าที่ยังไม่อ่านของเคสนี้ (read-state ร่วมกันทุกคน ตามที่ตัดสินใจไว้) ใช้ทำป้าย
+          // "มีอัปเดตใหม่จากนักศึกษา" บนการ์ด
+          "  (SELECT COUNT(*) FROM notification n WHERE n.request_id = rr.request_id AND n.is_read = 0) AS student_unread_count " +
           "FROM repair_request rr " +
           "LEFT JOIN repair_request_detail rrd ON rr.request_id = rrd.request_id " +
           "LEFT JOIN repair_type rt ON rrd.repair_type_id = rt.repair_type_id " +
@@ -240,10 +284,12 @@ module.exports = {
           "  tp.lastname, " +
           "  rr.appointment_date, " +
           "  rr.report_date, " +
-          "  rr.max_complaints " +
+          "  rr.max_complaints, " +
+          "  rr.finish_date, " +
+          "  rr.rushed_at " +
           "ORDER BY rr.report_date DESC";
 
-            var rows = await conn.query(sql);
+            var rows = await conn.query(sql, [STALE_FLAG_AFTER_DAYS, AUTO_CLOSE_AFTER_DAYS]);
 
             result = {
                 isError: false,
@@ -323,7 +369,17 @@ module.exports = {
           "  tp.phone AS technician_phone, " +
           "  DATE_FORMAT(rr.appointment_date, '%Y-%m-%d %H:%i:%s') AS appointment_date, " +
           "  DATE_FORMAT(rr.finish_date, '%Y-%m-%d %H:%i:%s') AS finish_date, " +
-          "  DATE_FORMAT(rr.report_date, '%Y-%m-%d %H:%i:%s') AS report_date " +
+          "  DATE_FORMAT(rr.report_date, '%Y-%m-%d %H:%i:%s') AS report_date, " +
+          "  DATE_FORMAT(rr.rushed_at, '%Y-%m-%d %H:%i:%s') AS rushed_at, " +
+          // เวลาที่จะปิดอัตโนมัติ (เฉพาะสถานะ 3) ให้แอปนักศึกษาโชว์นับถอยหลังในการ์ดรอยืนยัน
+          "  IF(rr.progress_status_id = 3, DATE_FORMAT(rr.finish_date + INTERVAL ? DAY, '%Y-%m-%d %H:%i:%s'), NULL) AS auto_close_at, " +
+          // can_rush ต้องตรงกับเงื่อนไขใน rushRepairRequest เป๊ะ (ที่นั่นตรวจซ้ำอีกชั้นภายใต้ FOR UPDATE)
+          "  (rr.progress_status_id IN (2, 5) AND rr.appointment_date IS NOT NULL " +
+          "   AND rr.appointment_date + INTERVAL 2 HOUR < NOW() " +
+          "   AND (rr.rushed_at IS NULL OR rr.rushed_at < NOW() - INTERVAL ? HOUR)) AS can_rush, " +
+          // เวลาที่กดเร่งได้อีกครั้ง — มีค่าเฉพาะตอนยังติด cooldown (ให้แอปบอกนักศึกษาเป็นวัน-เวลาตรงๆ)
+          "  IF(rr.rushed_at IS NOT NULL AND rr.rushed_at + INTERVAL ? HOUR > NOW(), " +
+          "     DATE_FORMAT(rr.rushed_at + INTERVAL ? HOUR, '%Y-%m-%d %H:%i:%s'), NULL) AS next_rush_at " +
           "FROM repair_request rr " +
           "LEFT JOIN repair_request_detail rrd ON rr.request_id = rrd.request_id " +
           "LEFT JOIN repair_type rt ON rrd.repair_type_id = rt.repair_type_id " +
@@ -348,9 +404,10 @@ module.exports = {
           "  tp.phone, " +
           "  rr.appointment_date, " +
           "  rr.finish_date, " +
-          "  rr.report_date";
+          "  rr.report_date, " +
+          "  rr.rushed_at";
 
-            var rows = await conn.query(sql, [requestId]);
+            var rows = await conn.query(sql, [AUTO_CLOSE_AFTER_DAYS, RUSH_COOLDOWN_HOURS, RUSH_COOLDOWN_HOURS, RUSH_COOLDOWN_HOURS, requestId]);
 
             result = {
                 isError: false,
@@ -384,7 +441,12 @@ module.exports = {
           "  rr.description, " +
           "  ps.progress_status_id, " +
           "  ps.progress_status_name, " +
-          "  DATE_FORMAT(rr.report_date, '%Y-%m-%d %H:%i:%s') AS report_date " +
+          "  DATE_FORMAT(rr.report_date, '%Y-%m-%d %H:%i:%s') AS report_date, " +
+          "  DATE_FORMAT(rr.appointment_date, '%Y-%m-%d %H:%i:%s') AS appointment_date, " +
+          // จุดแดง "มีอัปเดตใหม่": มีเหตุการณ์ฝั่งเจ้าหน้าที่/ระบบใหม่กว่าเวลาที่นักศึกษาเปิดดูเคสนี้ล่าสุด
+          "  EXISTS (SELECT 1 FROM repair_timeline tl WHERE tl.request_id = rr.request_id " +
+          "          AND tl.step_code IN (" + STAFF_STEP_SQL_LIST + ") " +
+          "          AND tl.event_date > rr.student_last_seen_at) AS has_unread " +
           "FROM repair_request rr " +
           "LEFT JOIN repair_request_detail rrd ON rr.request_id = rrd.request_id " +
           "LEFT JOIN repair_type rt ON rrd.repair_type_id = rt.repair_type_id " +
@@ -396,7 +458,9 @@ module.exports = {
           "  rr.description, " +
           "  ps.progress_status_id, " +
           "  ps.progress_status_name, " +
-          "  rr.report_date " +
+          "  rr.report_date, " +
+          "  rr.appointment_date, " +
+          "  rr.student_last_seen_at " +
           "ORDER BY rr.report_date DESC";
 
             var rows = await conn.query(sql, [accountId]);
@@ -646,9 +710,19 @@ module.exports = {
                 "JOIN account a ON a.account_id = ? " +
                 "JOIN moderator m ON m.person_id = a.person_id " +
                 "SET rr.progress_status_id = 2, rr.moderator_id = m.moderator_id " +
-                "WHERE rr.request_id = ?";
+                "WHERE rr.request_id = ? AND rr.progress_status_id = 1";
 
-            await conn.query(sql, [accountId, requestId]);
+            // ต้องยังเป็น "รอตรวจสอบ" อยู่จริง — ถ้านักศึกษายกเลิกตัดหน้าไปแล้ว (สถานะ 4) จะไม่ถูกทับกลับเป็น 2
+            var approveResult = await conn.query(sql, [accountId, requestId]);
+            if (approveResult.affectedRows === 0) {
+                await conn.rollback();
+                result = {
+                    isError: true,
+                    data: "",
+                    errorMessage: "เคสนี้ไม่ได้อยู่ในสถานะรอตรวจสอบแล้ว (อาจถูกยกเลิกหรืออนุมัติไปก่อนหน้านี้)"
+                };
+                return;
+            }
 
             // ถ้านักศึกษาไม่อนุญาตให้ช่างเข้าห้อง (allow_entry=0) autoScheduleIfAllowed ด้านล่างจะไม่จัดคิวให้
             // เอง — ต้องบอกนักศึกษาว่าให้ติดต่อใคร จึงดึงชื่อ+เบอร์เจ้าหน้าที่ที่อนุมัติ (accountId) มาใส่ใน
@@ -718,19 +792,30 @@ module.exports = {
             var moderatorRows = await conn.query(moderatorSql, [accountId]);
             var moderatorId = moderatorRows[0] ? moderatorRows[0].moderator_id : null;
 
+            // UPDATE มาก่อน INSERT และต้องยังเป็นสถานะ 1 — ถ้านักศึกษายกเลิกตัดหน้าไปแล้วจะไม่เขียนบันทึก
+            // การปฏิเสธซ้ำซ้อนลง repair_cancellation
+            var updateSql =
+                "UPDATE repair_request " +
+                "SET progress_status_id = 4 " +
+                "WHERE request_id = ? AND progress_status_id = 1";
+
+            var rejectResult = await conn.query(updateSql, [requestId]);
+            if (rejectResult.affectedRows === 0) {
+                await conn.rollback();
+                result = {
+                    isError: true,
+                    data: "",
+                    errorMessage: "เคสนี้ไม่ได้อยู่ในสถานะรอตรวจสอบแล้ว (อาจถูกยกเลิกหรืออนุมัติไปก่อนหน้านี้)"
+                };
+                return;
+            }
+
             var insertSql =
                 "INSERT INTO repair_cancellation (" +
                 "request_id, cancelled_by_moderator_id, cancel_reason" +
                 ") VALUES (?, ?, ?)";
 
             await conn.query(insertSql, [requestId, moderatorId, reason]);
-
-            var updateSql =
-                "UPDATE repair_request " +
-                "SET progress_status_id = 4 " +
-                "WHERE request_id = ?";
-
-            await conn.query(updateSql, [requestId]);
 
             await repairTimeline.insertTimelineStep(conn, requestId, 'cancelled', reason);
 
@@ -912,6 +997,12 @@ module.exports = {
             var technicianChanged = previous.technician_id !== normalizedTechnicianId;
             var appointmentChanged = previous.appointment_date !== normalizedAppointmentDate;
 
+            // เจ้าหน้าที่เลื่อนนัดแล้ว = ตอบคำเร่งของนักศึกษาแล้ว ต้องล้างธง "ผู้แจ้งเร่งงาน" และเริ่มนับ cooldown ใหม่
+            // ล้างเฉพาะเมื่อวันนัดเปลี่ยนจริง — กดบันทึกซ้ำโดยวันเดิม (เช่น แค่เบิกครุภัณฑ์เพิ่ม) ไม่ถือว่าตอบคำเร่ง
+            if (appointmentChanged) {
+                await conn.query("UPDATE repair_request SET rushed_at = NULL WHERE request_id = ?", [requestId]);
+            }
+
             // บันทึก timeline เฉพาะตอนที่ช่าง/วันนัดหมายเปลี่ยนจริง — กันไม่ให้กด "บันทึกการมอบหมายงาน"
             // ซ้ำโดยไม่ได้แก้อะไรแล้วเกิด entry ซ้ำซ้อนใน timeline
             if (technicianChanged || appointmentChanged) {
@@ -1022,7 +1113,7 @@ module.exports = {
 
             var sql =
                 "UPDATE repair_request " +
-                "SET progress_status_id = 3, finish_date = NOW() " +
+                "SET progress_status_id = 3, finish_date = NOW(), rushed_at = NULL " +
                 "WHERE request_id = ?";
 
             await conn.query(sql, [requestId]);
@@ -1057,6 +1148,170 @@ module.exports = {
         }
     },
 
+    // นักศึกษากด "เร่งการจัดการงาน" — ทำได้เมื่อช่วงนัดผ่านไปแล้วและงานยังซ่อมอยู่ (สถานะ 2/5) และกดซ้ำได้หลัง
+    // RUSH_COOLDOWN_HOURS ชม. ตรวจทุกเงื่อนไขซ้ำที่นี่ภายใต้ FOR UPDATE (ไม่เชื่อ can_rush ที่แอปเห็น) กันกดรัว/
+    // ชนกัน — ผลสำเร็จคืน next_rush_at + ข้อความไทย "กดได้อีกครั้งเมื่อไหร่" ที่คำนวณจาก rushed_at ที่เพิ่งบันทึก
+    rushRepairRequest: async (requestId) => {
+        let conn;
+        let result;
+
+        try {
+            conn = await pool.getConnection();
+            await conn.beginTransaction();
+
+            var caseRows = await conn.query(
+                "SELECT progress_status_id, contact_name, " +
+                "  (appointment_date IS NOT NULL AND appointment_date + INTERVAL 2 HOUR < NOW()) AS slot_passed, " +
+                "  (rushed_at IS NOT NULL AND rushed_at + INTERVAL ? HOUR > NOW()) AS in_cooldown, " +
+                "  DATE_FORMAT(rushed_at + INTERVAL ? HOUR, '%Y-%m-%d %H:%i:%s') AS cooldown_until " +
+                "FROM repair_request WHERE request_id = ? FOR UPDATE",
+                [RUSH_COOLDOWN_HOURS, RUSH_COOLDOWN_HOURS, requestId]
+            );
+            var caseRow = caseRows[0];
+
+            var rejectReason = null;
+            if (!caseRow) {
+                rejectReason = "ไม่พบเคสนี้";
+            } else if (caseRow.progress_status_id !== 2 && caseRow.progress_status_id !== 5) {
+                rejectReason = "เคสนี้ไม่ได้อยู่ระหว่างซ่อม จึงเร่งงานไม่ได้";
+            } else if (!caseRow.slot_passed) {
+                rejectReason = "ยังไม่เลยช่วงเวลานัดหมาย จึงยังเร่งงานไม่ได้";
+            } else if (caseRow.in_cooldown) {
+                rejectReason = `คุณเพิ่งเร่งงานไปแล้ว กดเร่งได้อีกครั้งวันที่ ${formatThaiDateTime(caseRow.cooldown_until)}`;
+            }
+
+            if (rejectReason) {
+                await conn.rollback();
+                result = { isError: true, data: "", errorMessage: rejectReason };
+                return;
+            }
+
+            await conn.query("UPDATE repair_request SET rushed_at = NOW() WHERE request_id = ?", [requestId]);
+
+            var rushedRows = await conn.query(
+                "SELECT DATE_FORMAT(rushed_at, '%Y-%m-%d %H:%i:%s') AS rushed_at, " +
+                "  DATE_FORMAT(rushed_at + INTERVAL ? HOUR, '%Y-%m-%d %H:%i:%s') AS next_rush_at " +
+                "FROM repair_request WHERE request_id = ?",
+                [RUSH_COOLDOWN_HOURS, requestId]
+            );
+
+            await notification.createNotification(
+                conn, requestId, 'rush_requested',
+                `${caseRow.contact_name} ขอให้เร่งการจัดการงาน`
+            );
+
+            await conn.commit();
+
+            result = {
+                isError: false,
+                data: {
+                    rushed_at: rushedRows[0].rushed_at,
+                    next_rush_at: rushedRows[0].next_rush_at,
+                    message: `ส่งคำขอเร่งงานแล้ว คุณจะกดเร่งได้อีกครั้งวันที่ ${formatThaiDateTime(rushedRows[0].next_rush_at)}`
+                },
+                errorMessage: ""
+            };
+        } catch (error) {
+            if (conn) {
+                await conn.rollback();
+            }
+
+            result = { isError: true, data: "", errorMessage: error.message };
+        } finally {
+            if (conn)
+                conn.release();
+
+            return result;
+        }
+    },
+
+    // นักศึกษาเปิดดูเคส → บันทึกเวลาล่าสุดที่เปิดดู (watermark ของจุดแดง "มีอัปเดตใหม่") เหตุการณ์ฝั่งเจ้าหน้าที่
+    // ที่เกิดหลังเวลานี้ = ยังไม่ได้ดู — แค่ UPDATE เดียว ไม่ต้อง transaction (ความเป็นเจ้าของเคสตรวจที่ route แล้ว)
+    markSeen: async (requestId) => {
+        let conn;
+        let result;
+
+        try {
+            conn = await pool.getConnection();
+            await conn.query("UPDATE repair_request SET student_last_seen_at = NOW() WHERE request_id = ?", [requestId]);
+            result = { isError: false, data: "", errorMessage: "" };
+        } catch (error) {
+            result = { isError: true, data: "", errorMessage: error.message };
+        } finally {
+            if (conn)
+                conn.release();
+
+            return result;
+        }
+    },
+
+    // นักศึกษายกเลิกคำร้องเอง — ทำได้ตั้งแต่แจ้งจนถึง "ก่อนเจ้าหน้าที่อนุมัติ" (สถานะ 1 เท่านั้น) หลังอนุมัติแล้ว
+    // ยกเลิกไม่ได้ ปิดเป็นสถานะ 4 เดิม + timeline step 'student_cancelled' (แยกจาก 'cancelled' ที่เจ้าหน้าที่ปฏิเสธ)
+    // ล็อกแถว FOR UPDATE ก่อนตรวจสถานะ กันชนกับเจ้าหน้าที่ที่กดอนุมัติพร้อมกัน
+    cancelRepairRequestByStudent: async (requestId, reason) => {
+        let conn;
+        let result;
+
+        try {
+            conn = await pool.getConnection();
+            await conn.beginTransaction();
+
+            var caseRows = await conn.query(
+                "SELECT progress_status_id, contact_name FROM repair_request WHERE request_id = ? FOR UPDATE",
+                [requestId]
+            );
+
+            if (!caseRows[0]) {
+                await conn.rollback();
+                result = { isError: true, data: "", errorMessage: "ไม่พบเคสนี้" };
+                return;
+            }
+
+            if (caseRows[0].progress_status_id !== 1) {
+                await conn.rollback();
+                result = {
+                    isError: true,
+                    data: "",
+                    errorMessage: "เคสนี้ถูกอนุมัติหรือดำเนินการไปแล้ว ยกเลิกไม่ได้"
+                };
+                return;
+            }
+
+            await conn.query("UPDATE repair_request SET progress_status_id = 4 WHERE request_id = ?", [requestId]);
+
+            var cancelReason = reason || 'นักศึกษายกเลิกคำร้องเอง';
+
+            // บันทึกลงตารางยกเลิกเดียวกับที่เจ้าหน้าที่ปฏิเสธใช้ — cancelled_by_moderator_id เป็น NULL = ผู้ยกเลิกคือนักศึกษา
+            // (คอลัมน์รับ NULL ได้อยู่แล้ว จึงไม่ต้องแก้ schema) cancel_reason เป็น NOT NULL จึงใส่ข้อความ default ให้
+            await conn.query(
+                "INSERT INTO repair_cancellation (request_id, cancelled_by_moderator_id, cancel_reason) VALUES (?, NULL, ?)",
+                [requestId, cancelReason]
+            );
+
+            await repairTimeline.insertTimelineStep(conn, requestId, 'student_cancelled', cancelReason);
+
+            await notification.createNotification(
+                conn, requestId, 'student_cancelled',
+                `${caseRows[0].contact_name} ยกเลิกคำร้องแจ้งซ่อม`
+            );
+
+            await conn.commit();
+
+            result = { isError: false, data: "", errorMessage: "" };
+        } catch (error) {
+            if (conn) {
+                await conn.rollback();
+            }
+
+            result = { isError: true, data: "", errorMessage: error.message };
+        } finally {
+            if (conn)
+                conn.release();
+
+            return result;
+        }
+    },
+
     // นักศึกษากด "ยอมรับ" ผลการซ่อม — ปิดเคสจริงเป็นครั้งสุดท้าย (progress_status_id = 6 "สำเร็จ")
     // เช็คว่าสถานะปัจจุบันต้องเป็น 3 ("เสร็จสิ้น" ความหมายใหม่คือรอนักศึกษาตรวจสอบ) ก่อนเท่านั้น กันกด
     // ยอมรับเคสที่ยังไม่ถึงขั้นตอนนี้ (เช่นยังอยู่ระหว่างซ่อม หรือปิดไปแล้ว)
@@ -1069,7 +1324,7 @@ module.exports = {
             await conn.beginTransaction();
 
             var statusRows = await conn.query(
-                "SELECT progress_status_id, contact_name FROM repair_request WHERE request_id = ?",
+                "SELECT progress_status_id, contact_name FROM repair_request WHERE request_id = ? FOR UPDATE",
                 [requestId]
             );
 

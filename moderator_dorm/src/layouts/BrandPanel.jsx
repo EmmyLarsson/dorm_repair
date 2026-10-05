@@ -1,4 +1,5 @@
 import { Outlet } from "react-router-dom";
+import dormLogo from "../assets/dorm_logo.jpg";
 
 export default function BrandPanel() {
   return (
@@ -42,10 +43,8 @@ export default function BrandPanel() {
 
         {/* การ์ดข้อความหลัก */}
         <div className="relative z-[2] max-w-[460px]">
-          <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-xl border border-white/30 bg-white/15">
-            <span className="material-symbols-outlined text-[32px] text-white">
-              apartment
-            </span>
+          <div className="mb-6 h-16 w-16 overflow-hidden rounded-xl border border-white/30">
+            <img src={dormLogo} alt="หอพัก 10-11" className="h-full w-full object-cover" />
           </div>
 
           <h1 className="mb-3 text-[28px] font-bold leading-snug">

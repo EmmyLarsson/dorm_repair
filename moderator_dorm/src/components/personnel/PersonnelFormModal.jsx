@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import BaseModal from '../BaseModal';
+import { photoFullUrl } from '../../utils/photoUtil';
 
 const EMPTY_FORM = {
   roleId: '',
@@ -38,6 +39,16 @@ function validateStudentUsername(username) {
   }
   if (!VALID_STUDENT_PREFIXES.includes(username.slice(0, 3))) {
     return 'สามารถพิมพ์ตัวเลขได้ 10 หลักเท่านั้น';
+  }
+  return '';
+}
+
+function validatePhone(phone) {
+  if (!/^\d+$/.test(phone)) {
+    return 'คุณกำลังใส่เบอร์โทรผิดรูปแบบ';
+  }
+  if (phone.length !== 10) {
+    return 'กรุณาใส่เบอร์โทรให้ครบ 10 หลัก';
   }
   return '';
 }
@@ -96,7 +107,8 @@ function PersonnelFormModal({
         positionId: person.positionId ? String(person.positionId) : '',
         specialtyId: person.specialtyId ? String(person.specialtyId) : '',
       });
-      setProfileImagePreview(person.profileImage || null);
+      // DB เก็บ path สั้นของรูปบน server (/uploads/...) ต้องต่อ host ของ API ก่อน ไม่งั้นเบราว์เซอร์ไปโหลดจากพอร์ต Vite
+      setProfileImagePreview(person.profileImage ? photoFullUrl(person.profileImage) : null);
     } else {
       setForm(EMPTY_FORM);
       setProfileImagePreview(null);
@@ -128,7 +140,12 @@ function PersonnelFormModal({
     if (!form.roleId) next.roleId = `กรุณาใส่${fieldLabel('roleId')}`;
     if (!form.firstname.trim()) next.firstname = `กรุณาใส่${fieldLabel('firstname')}`;
     if (!form.lastname.trim()) next.lastname = `กรุณาใส่${fieldLabel('lastname')}`;
-    if (!form.phone.trim()) next.phone = `กรุณาใส่${fieldLabel('phone')}`;
+    if (!form.phone.trim()) {
+      next.phone = `กรุณาใส่${fieldLabel('phone')}`;
+    } else {
+      const phoneError = validatePhone(form.phone.trim());
+      if (phoneError) next.phone = phoneError;
+    }
 
     if (roleId === 1) {
       // ตอนแก้ไข username/password ไม่บังคับกรอก (เว้นว่าง = ไม่เปลี่ยน) แต่ถ้ากรอกมาก็ต้อง

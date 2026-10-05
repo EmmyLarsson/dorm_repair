@@ -190,7 +190,9 @@ app.get("/api/progress_status/get_all", checkAccessToken, async (req, res) => {
     res.json(response);
 });
 
-app.get("/api/repair_request/get_all", checkAccessToken, async (req, res) => {
+// เจ้าหน้าที่เท่านั้น — ผลลัพธ์มีข้อมูลส่วนบุคคลของนักศึกษาทุกคน (ชื่อ ห้อง รูปโปรไฟล์) ตาม PDPA ต้องเห็นเฉพาะบทบาท
+// ที่จำเป็น; แอปนักศึกษาไม่ได้เรียก route นี้ (ใช้ get_all_by_user ของตัวเอง) จึงไม่กระทบ
+app.get("/api/repair_request/get_all", checkAccessToken, requireRole([2]), async (req, res) => {
     const response = await repair_request.getAllRepairRequest();
     res.json(response);
 });
@@ -678,6 +680,12 @@ app.post("/api/repair_request/:request_id/evaluation", checkAccessToken, (req, r
 
     const photoUrls = (req.files || []).map((file) => `/uploads/repair_evaluation_photos/${file.filename}`);
     const response = await repair_evaluation.createEvaluation(requestId, rating, req.body.feedback || null, photoUrls);
+    res.json(response);
+});
+
+// ต้องประกาศก่อน route ที่มี :request_id ไม่เช่นนั้น Express อาจตีความ "get_all_by_user" เป็นพารามิเตอร์
+app.get("/api/repair_evaluation/get_all_by_user", checkAccessToken, async (req, res) => {
+    const response = await repair_evaluation.getAllByStudent(req.decoded.user_id);
     res.json(response);
 });
 

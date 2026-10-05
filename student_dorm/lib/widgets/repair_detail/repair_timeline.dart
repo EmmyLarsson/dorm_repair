@@ -405,9 +405,10 @@ class AppointmentCard extends StatelessWidget {
     // step_detail จาก backend ขึ้นต้นด้วย "เลื่อนกำหนดการซ่อมเป็น..." เฉพาะตอนเลื่อนนัดจากที่เคยมีอยู่แล้ว
     // (ดู assignTechnician ใน server/models/repair_request.js) ใช้เช็คว่าควรโชว์หัวข้อไหน
     final isReschedule = notes != null && notes!.startsWith('เลื่อน');
-    // นัดที่ระบบจัดคิวให้เองตอนอนุมัติ (autoScheduleIfAllowed ฝั่ง backend ขึ้นต้นข้อความด้วย "ระบบจัดคิว...")
-    // — นักศึกษาควรรู้ว่าวันนี้ไม่ได้มาจากการนัดกับเจ้าหน้าที่ และเลื่อนได้ถ้าช่างไม่ว่าง
-    final isAutoScheduled = notes != null && notes!.startsWith('ระบบจัดคิว');
+    // นัดที่ระบบจัดคิวให้เองตอนอนุมัติ (autoScheduleIfAllowed ฝั่ง backend ขึ้นต้นข้อความด้วย
+    // "เจ้าหน้าที่นัดหมายวันซ่อมให้คุณแล้ว...") — ตั้งใจไม่บอกนักศึกษาตรงๆ ว่าเป็นการจัดคิวอัตโนมัติ
+    // เพื่อให้รู้สึกเหมือนมีเจ้าหน้าที่ดูแลจัดการให้จริง แต่ยังอยากเตือนว่าเลื่อนนัดได้ถ้าไม่สะดวก
+    final isAutoScheduled = notes != null && notes!.startsWith('เจ้าหน้าที่นัดหมายวันซ่อมให้คุณแล้ว');
     // notes ทั้งก้อนตอนนี้คือประโยคที่ backend แต่งไว้ (วันที่+ช่วงเวลาซ้ำกับกล่องด้านบนแล้ว) —
     // แกะเอาแค่หมายเหตุจริงที่เจ้าหน้าที่พิมพ์เอง (อยู่ในวงเล็บท้ายสุด) มาโชว์แทนทั้งประโยค
     final userNote = notes != null ? RegExp(r'\(([^)]*)\)$').firstMatch(notes!)?.group(1) : null;
@@ -513,7 +514,7 @@ class AppointmentCard extends StatelessWidget {
                 ),
                 if (isAutoScheduled) ...[
                   const Text(
-                    'ระบบจัดคิวนัดหมายให้อัตโนมัติ หากไม่สะดวกหรือมีเหตุจำเป็น เจ้าหน้าที่จะแจ้งเลื่อนให้ทราบ',
+                    'หากไม่สะดวกหรือมีเหตุจำเป็น ติดต่อเจ้าหน้าที่เพื่อขอเลื่อนนัดได้',
                     style: TextStyle(fontSize: 12.5, color: kTextMuted, height: 1.5),
                   ),
                   const SizedBox(height: 12),

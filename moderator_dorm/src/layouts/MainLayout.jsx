@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {NavLink, Outlet, useNavigate,} from "react-router-dom";
 import { AppAPI } from "../utils/appApi";
+import dormLogo from "../assets/dorm_logo.jpg";
 
 // แต่ละประเภทแจ้งเตือน → modal ที่ต้องเปิดในหน้าจัดการงานซ่อม (ของเดิมที่มีอยู่แล้วทั้งหมด ไม่สร้าง popup ใหม่)
 // ตามที่ตกลงกัน: คลิกแจ้งเตือน → พาไปหน้าจัดการงานซ่อม + เปิด modal นั้นพร้อมกันทันที (ไม่ใช่ไปหน้าเปล่าๆ ก่อน)
@@ -307,16 +308,8 @@ export default function MainLayout() {
       <aside className="fixed bottom-0 left-0 top-16 z-40 flex w-72 flex-col border-r border-slate-200 bg-white shadow-sm">
         {/* ชื่อและข้อมูลระบบ */}
         <div className="border-b border-slate-200 px-6 py-7 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-800 text-white shadow-md">
-            <span
-              className="material-symbols-outlined text-4xl"
-              style={{
-                fontVariationSettings:
-                  "'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 40",
-              }}
-            >
-              school
-            </span>
+          <div className="mx-auto mb-4 h-16 w-16 overflow-hidden rounded-2xl shadow-md">
+            <img src={dormLogo} alt="หอพัก 10-11" className="h-full w-full object-cover" />
           </div>
 
           <h2 className="text-sm font-bold leading-6 text-slate-800">

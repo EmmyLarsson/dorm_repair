@@ -25,6 +25,7 @@ function mapRepairRequestRow(row) {
     id: model.requestId,
     caseCode: model.caseCode,
     studentName: model.studentName,
+    studentProfileImage: model.studentProfileImage,
     contactPhone: model.contactPhone,
     roomNumber: model.roomNumber,
     allowEntry: model.allowEntry,
@@ -328,6 +329,13 @@ function addDaysToDateStr(dateStr, days) {
   return d.toISOString().slice(0, 10);
 }
 
+const THAI_MONTHS_SHORT = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+
+function formatThaiDateShort(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  return `${THAI_WEEKDAYS[d.getDay()]} ${d.getDate()} ${THAI_MONTHS_SHORT[d.getMonth()]} ${d.getFullYear() + 543}`;
+}
+
 // มินิปฏิทินเช็คคิวนัดหมาย 7 วันล่วงหน้า × 3 ช่วงเวลา — คลิกช่องเพื่อเลือกวันที่/ช่วงเวลาแทนช่อง
 // input วันที่ + select ช่วงเวลาแบบเดิม (mockup 2 แบบเทียบกันแล้ว ผู้ใช้เลือกแบบนี้เพราะเห็นภาพรวม
 // หลายวันพร้อมกัน มีประโยชน์เวลาต้องหาวันว่างสำหรับเคสที่ไม่อนุญาตเข้าห้อง/เคสเลื่อนนัด)
@@ -447,6 +455,9 @@ function RepairManagementPage() {
   const [isPickerOpen, setIsPickerOpen] = useState(false);
   // มินิปฏิทินเช็คคิว: { "YYYY-MM-DD": { "09-11": {count, isRevisionLocked, cases}, "13-15": {...}, "15-17": {...} } }
   const [slotAvailability, setSlotAvailability] = useState({});
+  // เปิด popup เลือกวันที่/ช่วงเวลาซ้อนบน popup "จัดการงานซ่อม" (รูปแบบเดียวกับ RejectReasonModal
+  // ที่เปิดซ้อนอยู่แล้ว) แทนที่จะฝังตารางปฏิทินไว้ในหน้าเดิมตลอด เพื่อไม่ให้ popup หลักรกเกินไป
+  const [isSlotPickerOpen, setIsSlotPickerOpen] = useState(false);
   // itemReports: [{ repairTypeId, repairTypeName, reportText, existingPhotos, newPhotos }]
   // หนึ่งแถวต่อหนึ่งรายการงานซ่อมของเคส (มาจาก r.repairTypes) — แทนที่ reportText/photos ก้อนเดียวแบบเดิม
   const [itemReports, setItemReports] = useState([]);
@@ -1382,15 +1393,24 @@ function RepairManagementPage() {
             เคสนี้มีคำร้องจากนักศึกษารอตัดสินใจ — แก้ไขนัดหมายไม่ได้จนกว่าจะอนุมัติหรือปฏิเสธคำร้อง (ดูที่แท็บ "รายงานผลการซ่อม")
           </div>
         )}
-        {/* มินิปฏิทินเช็คคิว — แทนที่ช่องวันที่+ช่วงเวลาเดิม ให้เห็นภาพรวม 7 วันล่วงหน้าพร้อมกัน
-            คลิกช่องเพื่อเลือกวันที่/ช่วงเวลาลง manageForm ตรงๆ (ฟอร์ม/การ submit ด้านล่างไม่เปลี่ยน) */}
-        <SlotAvailabilityCalendar
-          minDate={manageMinDate}
-          availability={slotAvailability}
-          selectedDate={manageForm.date}
-          selectedTimeslot={manageForm.timeslot}
-          onPick={(date, timeslot) => setManageForm((f) => ({ ...f, date, timeslot }))}
-        />
+        {/* แทนช่องวันที่+ช่วงเวลาเดิมด้วยปุ่มสรุปสั้นๆ กดแล้วเปิดมินิปฏิทินเป็น popup ซ้อนขึ้นมาแทน
+            (รูปแบบเดียวกับ RejectReasonModal ที่ซ้อนบน popup นี้อยู่แล้ว) กันไม่ให้ popup หลักรกเกินไป */}
+        <div className="flex flex-col gap-2">
+          <label className="text-sm font-bold">นัดหมายวันซ่อม + ช่วงเวลา</label>
+          <button
+            type="button"
+            onClick={() => setIsSlotPickerOpen(true)}
+            className="w-full flex items-center gap-3 px-4 py-3 border-[1.5px] border-slate-300 rounded-xl text-sm bg-white hover:bg-slate-50 focus:outline-none focus:border-blue-800 focus:ring-4 focus:ring-blue-800/10"
+          >
+            <span className="material-symbols-outlined text-slate-400 text-lg">calendar_month</span>
+            <span className="flex-grow text-left font-semibold text-slate-800">
+              {manageForm.date
+                ? `${formatThaiDateShort(manageForm.date)} · ${SLOT_DEFS.find((s) => s.key === manageForm.timeslot)?.label} น.`
+                : 'ยังไม่ได้เลือกวันที่/ช่วงเวลา'}
+            </span>
+            <span className="text-xs font-bold text-blue-700 whitespace-nowrap">เปลี่ยน / เลือกดูคิวว่าง</span>
+          </button>
+        </div>
 
         <div className="grid md:grid-cols-2 gap-6">
           {/* ฝั่งซ้าย: ช่างผู้รับผิดชอบ */}
@@ -1470,9 +1490,23 @@ function RepairManagementPage() {
           {caseComplaints.length > 0 && (
             <div className="flex flex-col gap-3">
               <label className="text-sm font-bold">ประวัติคำร้องจากนักศึกษา</label>
-              {caseComplaints.map((complaint, index) => (
-                // โชว์เฉพาะคำร้องที่เกี่ยวกับรอบนี้: ใบที่ทำให้เกิดรอบนี้ (index = รอบ-1) และใบที่ยื่นต่อรายงานรอบนี้ (index = รอบ)
-                (index === manageRound - 1 || index === manageRound) && (
+              {caseComplaints
+                .map((complaint, index) => {
+                  // รอบของคำร้องใบนี้ = จำนวนคำร้อง "ที่อนุมัติแล้ว" ก่อนหน้าใบนี้ (นับจาก prefix ของลิสต์)
+                  // ไม่ใช้ index ตรงๆ เพราะถ้ามีคำร้องถูกปฏิเสธคั่นอยู่ก่อนหน้า index จะไม่ตรงกับรอบจริง
+                  // (บัคเดิม: คำร้องใบที่ 2 หายไปจากหน้าจอถ้าใบแรกถูกปฏิเสธ เพราะ manageRound ค้างที่ 0
+                  // แต่ index ของใบที่ 2 คือ 1 ไม่ตรงเงื่อนไขไหนเลย)
+                  const roundOfComplaint = caseComplaints.slice(0, index).filter((c) => c.decision === 'approved').length;
+                  // โชว์เฉพาะคำร้องที่เกี่ยวกับรอบนี้: ใบที่ทำให้เกิดรอบนี้ (อนุมัติแล้ว รอบ = รอบปัจจุบัน-1)
+                  // และใบที่ยื่นต่อรายงานรอบนี้ (รอบ = รอบปัจจุบัน ไม่ว่าจะ pending/approved/rejected)
+                  const isRelevant = roundOfComplaint === manageRound || (roundOfComplaint === manageRound - 1 && complaint.decision === 'approved');
+                  return { complaint, index, isRelevant };
+                })
+                .filter((entry) => entry.isRelevant)
+                // เรียงใบล่าสุด (ยื่นทีหลัง) ขึ้นบนสุดเสมอ — กลับลำดับจากที่ caseComplaints เรียง
+                // เก่า→ใหม่ (ORDER BY complaint_id ASC จาก backend) ให้แสดงใหม่→เก่าแทน
+                .reverse()
+                .map(({ complaint, index }) => (
                 <div
                   key={complaint.complaintId}
                   className={`rounded-xl border-[1.5px] p-4 flex flex-col gap-2 ${
@@ -1563,8 +1597,7 @@ function RepairManagementPage() {
                     </div>
                   )}
                 </div>
-                )
-              ))}
+                ))}
             </div>
           )}
 
@@ -1598,6 +1631,25 @@ function RepairManagementPage() {
           </div>
         </div>
         )}
+      </BaseModal>
+
+      {/* ═══════ popup ซ้อน: เลือกวันที่/ช่วงเวลานัดหมาย (มินิปฏิทินเช็คคิว) ═══════ */}
+      <BaseModal
+        isOpen={isSlotPickerOpen}
+        onClose={() => setIsSlotPickerOpen(false)}
+        title="เลือกวันที่และช่วงเวลานัดหมาย"
+        maxWidth="max-w-3xl"
+      >
+        <SlotAvailabilityCalendar
+          minDate={manageMinDate}
+          availability={slotAvailability}
+          selectedDate={manageForm.date}
+          selectedTimeslot={manageForm.timeslot}
+          onPick={(date, timeslot) => {
+            setManageForm((f) => ({ ...f, date, timeslot }));
+            setIsSlotPickerOpen(false);
+          }}
+        />
       </BaseModal>
 
       {/* Lightbox แยกอยู่นอก BaseModal (ต้องอยู่ z-index สูงกว่า) — mirror pattern ของ RepairDetailModal.jsx */}

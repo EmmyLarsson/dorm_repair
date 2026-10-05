@@ -1,0 +1,14 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // พอร์ตคงที่ เพื่อให้ localStorage (SharedPreferences บน Web) ไม่หายทุกครั้งที่ run
+      // วางไว้ในโฟลเดอร์นี้ด้วย เผื่อเปิด VS Code ที่ student_dorm โดยตรง (ไม่ได้เปิดที่ D:\Project)
+      "name": "student_dorm (Chrome, port 5000)",
+      "request": "launch",
+      "type": "dart",
+      "deviceId": "chrome",
+      "args": ["--web-port", "5000"]
+    }
+  ]
+}

@@ -13,6 +13,7 @@ import 'package:student_dorm/widgets/report_submit/work_type_chip.dart';
 import 'package:student_dorm/widgets/report_submit/image_preview_grid.dart';
 import 'package:student_dorm/widgets/report_submit/existing_photo_grid.dart';
 import 'package:student_dorm/widgets/entry_permission_card.dart';
+import 'package:student_dorm/utils/validators.dart';
 
 class ReportSubmitScreen extends StatefulWidget {
   const ReportSubmitScreen({super.key, this.requestId = 0});
@@ -47,7 +48,13 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
   bool _errName = false;
   bool _errLastName = false;
   bool _errPhone = false;
+  // override ข้อความ error ของเบอร์โทร ตอนที่สาเหตุคือรูปแบบผิด ไม่ใช่แค่ไม่ได้กรอก (null = ใช้ข้อความ
+  // default "กรุณากรอกเบอร์โทรติดต่อ" ที่ PersonalInfoForm กำหนดไว้)
+  String? _phoneErrorText;
   bool _errRoom = false;
+  // override ข้อความ error ของหมายเลขห้อง ตอนที่สาเหตุคือรูปแบบ/ช่วงตัวเลขผิด ไม่ใช่แค่ไม่ได้กรอก
+  // (null = ใช้ข้อความ default "กรุณากรอกหมายเลขห้องพัก" ที่ PersonalInfoForm กำหนดไว้)
+  String? _roomErrorText;
   bool _errWorkType = false;
   bool _errDesc = false;
 
@@ -281,8 +288,25 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
     setState(() {
       _errName = nameController.text.trim().isEmpty;
       _errLastName = lastNameController.text.trim().isEmpty;
-      _errPhone = phoneController.text.trim().isEmpty;
-      _errRoom = roomNumberController.text.trim().isEmpty;
+
+      final phoneValue = phoneController.text.trim();
+      if (phoneValue.isEmpty) {
+        _errPhone = true;
+        _phoneErrorText = null; // ใช้ข้อความ default "กรุณากรอกเบอร์โทรติดต่อ"
+      } else {
+        _phoneErrorText = validatePhoneNumber(phoneValue);
+        _errPhone = _phoneErrorText != null;
+      }
+
+      final roomValue = roomNumberController.text.trim();
+      if (roomValue.isEmpty) {
+        _errRoom = true;
+        _roomErrorText = null; // ใช้ข้อความ default "กรุณากรอกหมายเลขห้องพัก"
+      } else {
+        _roomErrorText = validateRoomNumber(roomValue);
+        _errRoom = _roomErrorText != null;
+      }
+
       _errWorkType = selectedRepairTypeIds.isEmpty;
       _errDesc = descriptionController.text.trim().isEmpty;
     });
@@ -798,7 +822,9 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
                           errorName: _errName,
                           errorLastName: _errLastName,
                           errorPhone: _errPhone,
+                          phoneErrorText: _phoneErrorText,
                           errorRoom: _errRoom,
+                          roomErrorText: _roomErrorText,
                           onInfoModeChanged: _applyInfoMode,
                           onNameChanged: (value) {
                             if (value.trim().isNotEmpty && _errName) {
@@ -818,6 +844,7 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
                             if (value.trim().isNotEmpty && _errPhone) {
                               setState(() {
                                 _errPhone = false;
+                                _phoneErrorText = null;
                               });
                             }
                           },
@@ -825,6 +852,7 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
                             if (value.trim().isNotEmpty && _errRoom) {
                               setState(() {
                                 _errRoom = false;
+                                _roomErrorText = null;
                               });
                             }
                           },
@@ -996,83 +1024,97 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
           ),
           const SizedBox(height: 18),
 
-          // Upload zone
-          GestureDetector(
-            onTap: isFull ? null : () => _showImageSourceSheet(context),
-            child: Opacity(
-              opacity: isFull ? 0.5 : 1,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  vertical: 30,
-                  horizontal: 16,
-                ),
-                decoration: BoxDecoration(
-                  color: kRsFieldBg,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: const Color(0xFFCCC5B0),
-                    width: 2,
-                    style: BorderStyle.solid,
-                  ),
-                ),
-                child: Column(
-                  children: [
-                    Container(
-                      width: 58,
-                      height: 58,
-                      margin: const EdgeInsets.only(bottom: 6),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [Color(0xFFFFF8D6), Color(0xFFFFF3B0)],
-                        ),
-                        borderRadius: BorderRadius.circular(18),
-                        boxShadow: [
-                          BoxShadow(
-                            color: kRsGoldText.withValues(alpha: 0.14),
-                            blurRadius: 10,
-                            offset: const Offset(0, 2),
+          // Upload zone — กรอบเดียวรวมปุ่มอัปโหลดกับรูปที่แนบแล้ว (เดิมรูปลอยอยู่นอกกรอบ)
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: kRsFieldBg,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: const Color(0xFFCCC5B0),
+                width: 2,
+                style: BorderStyle.solid,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Opacity ครอบเฉพาะแถวปุ่ม ไม่ครอบรูป ไม่งั้นรูปที่แนบแล้วจะจางไปด้วยตอนแนบครบ
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: isFull ? null : () => _showImageSourceSheet(context),
+                  child: Opacity(
+                    opacity: isFull ? 0.5 : 1,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 46,
+                            height: 46,
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [Color(0xFFFFF8D6), Color(0xFFFFF3B0)],
+                              ),
+                              borderRadius: BorderRadius.circular(14),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: kRsGoldText.withValues(alpha: 0.14),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
+                            ),
+                            child: Icon(
+                              Icons.add_photo_alternate,
+                              size: 24,
+                              color: kRsGoldText,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'แตะเพื่อเลือกรูปภาพ',
+                                  style: GoogleFonts.sarabun(
+                                    fontSize: 13.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: kRsOnSurface,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'สูงสุด $_maxImages รูป • ไม่เกินรูปละ ${_maxFileMb.toInt()} MB',
+                                  style: GoogleFonts.sarabun(
+                                    fontSize: 11.5,
+                                    color: kRsMuted,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ],
                       ),
-                      child: Icon(
-                        Icons.add_photo_alternate,
-                        size: 28,
-                        color: kRsGoldText,
-                      ),
                     ),
-                    Text(
-                      'แตะเพื่อเลือกรูปภาพ',
-                      style: GoogleFonts.sarabun(
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w700,
-                        color: kRsOnSurface,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'สูงสุด $_maxImages รูป • ไม่เกินรูปละ ${_maxFileMb.toInt()} MB',
-                      style: GoogleFonts.sarabun(
-                        fontSize: 11.5,
-                        color: kRsMuted,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
+
+                if (_existingPhotos.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  ExistingPhotoGrid(photos: _existingPhotos, onRemove: _removeExistingPhoto),
+                ],
+
+                if (_uploadedImages.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  ImagePreviewGrid(images: _uploadedImages, onRemove: _removeImage),
+                ],
+              ],
             ),
           ),
-
-          if (_existingPhotos.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            ExistingPhotoGrid(photos: _existingPhotos, onRemove: _removeExistingPhoto),
-          ],
-
-          if (_uploadedImages.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            ImagePreviewGrid(images: _uploadedImages, onRemove: _removeImage),
-          ],
 
           const SizedBox(height: 14),
           Container(

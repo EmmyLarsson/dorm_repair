@@ -13,7 +13,9 @@ class PersonalInfoForm extends StatelessWidget {
     required this.errorName,
     required this.errorLastName,
     required this.errorPhone,
+    this.phoneErrorText,
     required this.errorRoom,
+    this.roomErrorText,
     required this.onInfoModeChanged,
     required this.onNameChanged,
     required this.onLastNameChanged,
@@ -31,7 +33,13 @@ class PersonalInfoForm extends StatelessWidget {
   final bool errorName;
   final bool errorLastName;
   final bool errorPhone;
+  // ข้อความ error เฉพาะของเบอร์โทร override ค่า default ('กรุณากรอกเบอร์โทรติดต่อ') ตอนที่ errorPhone
+  // เกิดจากรูปแบบผิด (มีตัวอักษร/สัญลักษณ์ปน หรือจำนวนหลักไม่ครบ 10) ไม่ใช่แค่ไม่ได้กรอกเฉยๆ
+  final String? phoneErrorText;
   final bool errorRoom;
+  // ข้อความ error เฉพาะของหมายเลขห้อง override ค่า default ('กรุณากรอกหมายเลขห้องพัก') ตอนที่ errorRoom
+  // เกิดจากรูปแบบ/ช่วงตัวเลขผิด ไม่ใช่แค่ไม่ได้กรอกเฉยๆ
+  final String? roomErrorText;
 
   final ValueChanged<String> onInfoModeChanged;
   final ValueChanged<String> onNameChanged;
@@ -99,7 +107,7 @@ class PersonalInfoForm extends StatelessWidget {
             controller: phoneController,
             hint: '0xx-xxx-xxxx',
             isError: errorPhone,
-            errorText: 'กรุณากรอกเบอร์โทรติดต่อ',
+            errorText: phoneErrorText ?? 'กรุณากรอกเบอร์โทรติดต่อ',
             readOnly: isSaved,
             keyboardType: TextInputType.phone,
             onChanged: onPhoneChanged,
@@ -112,7 +120,7 @@ class PersonalInfoForm extends StatelessWidget {
             controller: roomController,
             hint: 'เช่น 110912',
             isError: errorRoom,
-            errorText: 'กรุณากรอกหมายเลขห้องพัก',
+            errorText: roomErrorText ?? 'กรุณากรอกหมายเลขห้องพัก',
             readOnly: isSaved,
             onChanged: onRoomChanged,
           ),

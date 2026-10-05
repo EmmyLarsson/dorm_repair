@@ -260,12 +260,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ],
                   ),
-                  alignment: Alignment.center,
-                  child: const Icon(
-                    Icons.apartment_rounded,
-                    color: kNavy,
-                    size: 26,
-                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Image.asset('assets/dorm_logo.jpg', fit: BoxFit.cover),
                 ),
                 const SizedBox(width: 12),
                 Expanded(

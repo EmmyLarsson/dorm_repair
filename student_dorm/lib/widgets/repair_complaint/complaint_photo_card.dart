@@ -93,63 +93,81 @@ class ComplaintPhotoCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 18),
-          GestureDetector(
-            onTap: isFull ? null : onAddTap,
-            child: Opacity(
-              opacity: isFull ? 0.5 : 1,
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 30, horizontal: 16),
-                decoration: BoxDecoration(
-                  color: kRsFieldBg,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: const Color(0xFFCCC5B0), width: 2),
-                ),
-                child: Column(
-                  children: [
-                    Container(
-                      width: 58,
-                      height: 58,
-                      margin: const EdgeInsets.only(bottom: 6),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFFFFF8D6), Color(0xFFFFF3B0)]),
-                        borderRadius: BorderRadius.circular(18),
-                        boxShadow: [BoxShadow(color: kRsGoldText.withValues(alpha: 0.14), blurRadius: 10, offset: const Offset(0, 2))],
+          // กรอบเดียวรวมปุ่มอัปโหลดกับรูปที่แนบแล้ว (เดิมรูปลอยอยู่นอกกรอบ)
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: kRsFieldBg,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: const Color(0xFFCCC5B0), width: 2),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Opacity ครอบเฉพาะแถวปุ่ม ไม่ครอบรูป ไม่งั้นรูปที่แนบแล้วจะจางไปด้วยตอนแนบครบ
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: isFull ? null : onAddTap,
+                  child: Opacity(
+                    opacity: isFull ? 0.5 : 1,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 46,
+                            height: 46,
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFFFFF8D6), Color(0xFFFFF3B0)]),
+                              borderRadius: BorderRadius.circular(14),
+                              boxShadow: [BoxShadow(color: kRsGoldText.withValues(alpha: 0.14), blurRadius: 10, offset: const Offset(0, 2))],
+                            ),
+                            child: Icon(Icons.upload, size: 24, color: kRsGoldText),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('แนบรูปภาพประกอบ', style: GoogleFonts.sarabun(fontSize: 13.5, fontWeight: FontWeight.w700, color: kRsOnSurface)),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'สูงสุด $maxImages รูป • ไม่เกินรูปละ ${maxFileMb.toInt()} MB',
+                                  style: GoogleFonts.sarabun(fontSize: 11.5, color: kRsMuted),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                      child: Icon(Icons.upload, size: 28, color: kRsGoldText),
                     ),
-                    Text('แนบรูปภาพประกอบ', style: GoogleFonts.sarabun(fontSize: 13.5, fontWeight: FontWeight.w700, color: kRsOnSurface)),
-                    const SizedBox(height: 2),
-                    Text(
-                      'สูงสุด $maxImages รูป • ไม่เกินรูปละ ${maxFileMb.toInt()} MB',
-                      style: GoogleFonts.sarabun(fontSize: 11.5, color: kRsMuted),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
+                if (existingPhotoUrls.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: existingPhotoUrls.length,
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 3,
+                      crossAxisSpacing: 8,
+                      mainAxisSpacing: 8,
+                      childAspectRatio: 1,
+                    ),
+                    itemBuilder: (context, index) => _ExistingPhotoThumb(
+                      photoUrl: existingPhotoUrls[index],
+                      onRemove: onRemoveExisting == null ? null : () => onRemoveExisting!(index),
+                    ),
+                  ),
+                ],
+                if (photos.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  ImagePreviewGrid(images: photos, onRemove: onRemove),
+                ],
+              ],
             ),
           ),
-          if (existingPhotoUrls.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: existingPhotoUrls.length,
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3,
-                crossAxisSpacing: 8,
-                mainAxisSpacing: 8,
-                childAspectRatio: 1,
-              ),
-              itemBuilder: (context, index) => _ExistingPhotoThumb(
-                photoUrl: existingPhotoUrls[index],
-                onRemove: onRemoveExisting == null ? null : () => onRemoveExisting!(index),
-              ),
-            ),
-          ],
-          if (photos.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            ImagePreviewGrid(images: photos, onRemove: onRemove),
-          ],
           if (onAllowEntrySelect != null) ...[
             const SizedBox(height: 14),
             Container(

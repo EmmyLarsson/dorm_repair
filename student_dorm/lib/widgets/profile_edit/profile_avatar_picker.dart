@@ -90,7 +90,13 @@ class _ProfileAvatarPickerState extends State<ProfileAvatarPicker> {
 
     // ใช้ XFile จาก image_picker เสมอ ห้ามแปลงเป็น dart:io.File
     // เพราะ dart:io.File ใช้ไม่ได้บน Flutter Web
-    final XFile? pickedFile = await ImagePicker().pickImage(source: source, imageQuality: 85);
+    // จำกัด 500px เพราะรูปโปรไฟล์แสดงเป็นวงกลมเล็ก — ไม่ต้องส่งรูปเต็มขนาดขึ้น server
+    final XFile? pickedFile = await ImagePicker().pickImage(
+      source: source,
+      imageQuality: 85,
+      maxWidth: 500,
+      maxHeight: 500,
+    );
     if (pickedFile == null) return;
 
     await _uploadPhoto(pickedFile);

@@ -1,3 +1,5 @@
+import { photoFullUrl } from '../utils/photoUtil';
+
 const STATUS_BADGE_CLASS = {
   1: 'bg-yellow-100 text-yellow-800',
   2: 'bg-blue-100 text-blue-800',
@@ -47,10 +49,18 @@ function RepairCard({
       )}
 
       <div className="flex items-center gap-3">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-blue-100">
-          <span className="material-symbols-outlined text-xl text-blue-800">
-            person
-          </span>
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-blue-100">
+          {repair.studentProfileImage ? (
+            <img
+              src={photoFullUrl(repair.studentProfileImage)}
+              alt={repair.studentName}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <span className="material-symbols-outlined text-xl text-blue-800">
+              person
+            </span>
+          )}
         </div>
 
         <div className="min-w-0">

@@ -16,7 +16,9 @@ class ProfilePersonalInfoCard extends StatelessWidget {
     required this.phoneController,
     required this.roomController,
     required this.errorPhone,
+    this.phoneErrorText,
     required this.errorRoom,
+    this.roomErrorText,
     required this.onPhoneChanged,
     required this.onRoomChanged,
   });
@@ -29,7 +31,13 @@ class ProfilePersonalInfoCard extends StatelessWidget {
   final TextEditingController roomController;
 
   final bool errorPhone;
+  // ข้อความ error เฉพาะของเบอร์โทร override ค่า default ('กรุณากรอกเบอร์โทรติดต่อ') ตอนที่ errorPhone
+  // เกิดจากรูปแบบผิด (มีตัวอักษร/สัญลักษณ์ปน หรือจำนวนหลักไม่ครบ 10) ไม่ใช่แค่ไม่ได้กรอกเฉยๆ
+  final String? phoneErrorText;
   final bool errorRoom;
+  // ข้อความ error เฉพาะของหมายเลขห้อง override ค่า default ('กรุณากรอกหมายเลขห้องพัก') ตอนที่ errorRoom
+  // เกิดจากรูปแบบ/ช่วงตัวเลขผิด ไม่ใช่แค่ไม่ได้กรอกเฉยๆ
+  final String? roomErrorText;
 
   final ValueChanged<String> onPhoneChanged;
   final ValueChanged<String> onRoomChanged;
@@ -93,7 +101,7 @@ class ProfilePersonalInfoCard extends StatelessWidget {
             controller: phoneController,
             hint: '0xx-xxx-xxxx',
             isError: errorPhone,
-            errorText: 'กรุณากรอกเบอร์โทรติดต่อ',
+            errorText: phoneErrorText ?? 'กรุณากรอกเบอร์โทรติดต่อ',
             keyboardType: TextInputType.phone,
             onChanged: onPhoneChanged,
           ),
@@ -104,7 +112,7 @@ class ProfilePersonalInfoCard extends StatelessWidget {
             controller: roomController,
             hint: 'เช่น 111320',
             isError: errorRoom,
-            errorText: 'กรุณากรอกหมายเลขห้องพัก',
+            errorText: roomErrorText ?? 'กรุณากรอกหมายเลขห้องพัก',
             onChanged: onRoomChanged,
           ),
         ],

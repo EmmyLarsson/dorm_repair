@@ -1,3 +1,5 @@
+import { photoFullUrl } from '../../utils/photoUtil';
+
 const ROLE_BADGE_CLASS = {
   1: 'bg-indigo-100 text-indigo-800',
   2: 'bg-amber-100 text-amber-800',
@@ -46,7 +48,7 @@ function PersonnelCard({
       <div className="flex items-center gap-3">
         <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-blue-100">
           {person.profileImage ? (
-            <img src={person.profileImage} alt={person.fullName} className="h-full w-full object-cover" />
+            <img src={photoFullUrl(person.profileImage)} alt={person.fullName} className="h-full w-full object-cover" />
           ) : (
             <span className="material-symbols-outlined text-xl text-blue-800">
               {ROLE_ICON[person.roleId] ?? 'person'}

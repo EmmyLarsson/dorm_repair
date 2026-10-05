@@ -61,6 +61,57 @@ module.exports = {
         }
     },
 
+    // รายการประเมินทั้งหมดของนักศึกษาคนเดียว (หน้า "ประวัติการประเมิน") — กรองด้วย student_id ใน SQL เลย
+    // ไม่ดึงทั้งตารางมากรองทีหลัง จึงไม่มีทางเห็นรีวิวของคนอื่น; ส่งแค่จำนวนรูป (ไม่ส่ง URL) เพราะการ์ดในรายการ
+    // ไม่แสดงรูป รูปเต็มดึงจาก getByRequestId ตอนเปิดรายละเอียด
+    // DISTINCT ใน GROUP_CONCAT: คำร้องหนึ่งมีหลายประเภทงาน JOIN แล้วแถวซ้ำกับ JOIN รูป จึงต้องกันชื่อซ้ำ
+    getAllByStudent: async (studentId) => {
+        let conn;
+        let result;
+
+        try {
+            conn = await pool.getConnection();
+
+            var rows = await conn.query(
+                "SELECT " +
+                "  re.evaluation_id, " +
+                "  re.request_id, " +
+                "  rr.case_code, " +
+                "  re.rating, " +
+                "  re.feedback, " +
+                "  DATE_FORMAT(re.evaluated_at, '%Y-%m-%d %H:%i:%s') AS evaluated_at, " +
+                "  DATE_FORMAT(rr.finish_date, '%Y-%m-%d %H:%i:%s') AS finish_date, " +
+                "  (SELECT GROUP_CONCAT(DISTINCT rt.repair_type_name SEPARATOR ',') " +
+                "     FROM repair_request_detail rrd " +
+                "     JOIN repair_type rt ON rrd.repair_type_id = rt.repair_type_id " +
+                "     WHERE rrd.request_id = rr.request_id) AS type_names, " +
+                "  (SELECT COUNT(*) FROM repair_evaluation_photo rep WHERE rep.evaluation_id = re.evaluation_id) AS photo_count " +
+                "FROM repair_evaluation re " +
+                "JOIN repair_request rr ON rr.request_id = re.request_id " +
+                "WHERE rr.student_id = ? " +
+                "ORDER BY re.evaluated_at DESC, re.evaluation_id DESC",
+                [studentId]
+            );
+
+            result = {
+                isError: false,
+                data: rows,
+                errorMessage: ""
+            };
+        } catch (error) {
+            result = {
+                isError: true,
+                data: "",
+                errorMessage: error.message
+            }
+        } finally {
+            if (conn)
+                conn.release();
+
+            return result;
+        }
+    },
+
     // 1 คำร้อง : 1 การประเมิน (บังคับด้วย UNIQUE KEY uq_evaluation_request)
     // ถ้าเคยประเมินไว้แล้วให้เรียก updateEvaluation แทน (แก้ไขในที่) ไม่ใช่เรียกซ้ำ
     createEvaluation: async (requestId, rating, feedback, photoUrls) => {

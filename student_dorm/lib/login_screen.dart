@@ -464,7 +464,20 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  // บันทึกตอนกดเข้าสู่ระบบ (ไม่รอให้ล็อกอินสำเร็จ) เพื่อให้ username ที่กรอกล่าสุดยังอยู่แม้รหัสผ่านผิด
+  // หรือเซิร์ฟเวอร์ตอบ error — จำแค่ username เท่านั้น ไม่เก็บ password ไว้เด็ดขาด
+  Future<void> _saveRememberedUsername() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (rememberMe) {
+      await prefs.setString("remembered_username", _usernameEditingController.text.trim());
+    } else {
+      await prefs.remove("remembered_username");
+    }
+  }
+
   void _doLogin(BuildContext context) async {
+    await _saveRememberedUsername();
+
     var (isError, authenToken, errorMessage) = await _authenRequest();
 
     if (isError) {
@@ -530,13 +543,6 @@ class _LoginScreenState extends State<LoginScreen> {
       await prefs.setString("access_token", json["data"]["access_token"]);
       await prefs.setString("username", _usernameEditingController.text);
       await prefs.setString("image_url", json["data"]["image_url"] ?? "");
-
-      // จำแค่ username เท่านั้นตอนติ๊ก "จดจำฉัน" — ไม่เก็บ password ไว้เด็ดขาด
-      if (rememberMe) {
-        await prefs.setString("remembered_username", _usernameEditingController.text);
-      } else {
-        await prefs.remove("remembered_username");
-      }
 
       print("access_token${json["data"]["access_token"]}");
       return (

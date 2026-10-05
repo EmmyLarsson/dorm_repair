@@ -3,6 +3,7 @@ export class RepairRequestModel {
     requestId,
     caseCode,
     studentName,
+    studentProfileImage,
     contactPhone,
     roomNumber,
     allowEntry,
@@ -20,6 +21,8 @@ export class RepairRequestModel {
     this.requestId = requestId;
     this.caseCode = caseCode;
     this.studentName = studentName;
+    // path รูปโปรไฟล์ของนักศึกษา — backend ส่งมาเฉพาะเคสที่แจ้งด้วยข้อมูลเดิมของโปรไฟล์ (null = เคสที่กรอกข้อมูลใหม่)
+    this.studentProfileImage = studentProfileImage;
     this.contactPhone = contactPhone;
     this.roomNumber = roomNumber;
     this.allowEntry = allowEntry;
@@ -98,6 +101,7 @@ export class RepairRequestModel {
       requestId: json.request_id,
       caseCode: json.case_code,
       studentName: json.student_name ?? '',
+      studentProfileImage: json.student_profile_image ?? null,
       contactPhone: json.contact_phone ?? '',
       roomNumber: json.room_number ?? '',
       allowEntry: Boolean(json.allow_entry),
