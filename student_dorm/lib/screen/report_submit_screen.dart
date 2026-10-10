@@ -31,7 +31,9 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
   final TextEditingController roomNumberController = TextEditingController();
   final TextEditingController descriptionController = TextEditingController();
   final List<int> selectedRepairTypeIds = [];
-  String _permission = 'yes';
+  // ว่างไว้ก่อน (ไม่ติ๊กให้) เหมือนหน้ายื่นอุทธรณ์ — ให้นักศึกษาเลือกเองทุกครั้ง 'yes' | 'no' | '' (ยังไม่เลือก)
+  // ค่านี้กระทบการนัดซ่อมอัตโนมัติ จึงห้ามเดาแทนผู้ใช้ ถ้าว่างอยู่จะส่งไม่ได้ (ตรวจใน _handleSubmit)
+  String _permission = '';
   bool _isSubmitting = false;
 
   String _infoMode = 'new'; // 'new' | 'saved'
@@ -384,6 +386,11 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
   Future<void> _handleSubmit() async {
     if (!_validateForm()) {
       _showToast('กรุณากรอกข้อมูลให้ครบถ้วน', isWarn: true);
+      return;
+    }
+
+    if (_permission.isEmpty) {
+      _showToast('โปรดเลือกว่าอนุญาตให้ช่างเข้าห้องหรือไม่ก่อนส่ง', isWarn: true);
       return;
     }
 

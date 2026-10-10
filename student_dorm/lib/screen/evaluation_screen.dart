@@ -15,10 +15,13 @@ import 'package:student_dorm/widgets/report_submit/image_preview_grid.dart';
 /// แนบรูปหลังซ่อม (ไม่บังคับ), เขียนข้อเสนอแนะ (ไม่บังคับ) รองรับทั้งประเมินครั้งแรกและแก้ไขของเดิม
 /// เขียนรวมไว้ไฟล์เดียว (เหมือน report_submit_screen.dart) ยังไม่แยก widget ย่อยออกเป็น shared —
 /// จะพิจารณาแยกอีกทีถ้ามีหน้าอื่นต้องใช้ซ้ำจริงในอนาคต
+/// isFailedCase = เคส "ซ่อมไม่สำเร็จ" (นักศึกษาไม่ยอมรับผลซ่อม): หน้าเดียวกันแต่ไม่มีดาว (ซ่อนการ์ดดาว ไม่ส่ง rating)
+/// และบังคับกรอกเหตุผล เพราะไม่มีดาวให้บอกอะไร ข้อความคือข้อมูลเดียวที่เจ้าหน้าที่ใช้ตรวจสอบเคส (backend ตรวจซ้ำ)
 class EvaluationScreen extends StatefulWidget {
-  const EvaluationScreen({super.key, required this.requestId});
+  const EvaluationScreen({super.key, required this.requestId, this.isFailedCase = false});
 
   final int requestId;
+  final bool isFailedCase;
 
   @override
   State<EvaluationScreen> createState() => _EvaluationScreenState();
@@ -183,7 +186,12 @@ class _EvaluationScreenState extends State<EvaluationScreen> {
   }
 
   Future<void> _handleSubmit() async {
-    if (_rating == 0) {
+    if (widget.isFailedCase) {
+      if (_feedbackController.text.trim().isEmpty) {
+        _showToast('กรุณาระบุเหตุผลที่ไม่ยอมรับผลการซ่อม', isWarn: true);
+        return;
+      }
+    } else if (_rating == 0) {
       _showToast('โปรดให้คะแนนความพึงพอใจก่อนยืนยัน', isWarn: true);
       return;
     }
@@ -193,7 +201,7 @@ class _EvaluationScreenState extends State<EvaluationScreen> {
     });
 
     final fields = {
-      'rating': '$_rating',
+      if (!widget.isFailedCase) 'rating': '$_rating',
       'feedback': _feedbackController.text.trim(),
     };
 
@@ -344,12 +352,14 @@ class _EvaluationScreenState extends State<EvaluationScreen> {
                 ),
               ),
               Text(
-                'ขอบคุณสำหรับการประเมิน',
+                widget.isFailedCase ? 'ขอบคุณที่แจ้งเหตุผล' : 'ขอบคุณสำหรับการประเมิน',
                 style: GoogleFonts.sarabun(fontSize: 22, fontWeight: FontWeight.w800, color: kRsOnSurface, letterSpacing: -0.2),
               ),
               const SizedBox(height: 8),
               Text(
-                'ความคิดเห็นของคุณจะช่วยพัฒนา\nคุณภาพการบริการซ่อมของเราให้ดียิ่งขึ้น',
+                widget.isFailedCase
+                    ? 'เจ้าหน้าที่จะตรวจสอบเหตุผลของคุณ\nและนำไปปรับปรุงการบริการซ่อม'
+                    : 'ความคิดเห็นของคุณจะช่วยพัฒนา\nคุณภาพการบริการซ่อมของเราให้ดียิ่งขึ้น',
                 textAlign: TextAlign.center,
                 style: GoogleFonts.sarabun(fontSize: 13.5, color: const Color(0xFF7E775F), height: 1.75),
               ),
@@ -415,8 +425,10 @@ class _EvaluationScreenState extends State<EvaluationScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              _buildRatingCard(),
-                              const SizedBox(height: 18),
+                              if (!widget.isFailedCase) ...[
+                                _buildRatingCard(),
+                                const SizedBox(height: 18),
+                              ],
                               _buildPhotoCard(),
                               const SizedBox(height: 18),
                               _buildSuggestionsCard(),
@@ -464,12 +476,12 @@ class _EvaluationScreenState extends State<EvaluationScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'ประเมินงานซ่อม',
+                    widget.isFailedCase ? 'เหตุผลที่ไม่ยอมรับ' : 'ประเมินงานซ่อม',
                     style: GoogleFonts.sarabun(fontSize: 20, fontWeight: FontWeight.w800, color: kRsOnPrimary, letterSpacing: -0.3, height: 1.2),
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'ให้คะแนนความพึงพอใจในการซ่อม',
+                    widget.isFailedCase ? 'บอกเจ้าหน้าที่ว่าผลซ่อมยังมีปัญหาอะไร' : 'ให้คะแนนความพึงพอใจในการซ่อม',
                     style: GoogleFonts.sarabun(fontSize: 11.5, fontWeight: FontWeight.w500, color: kRsOnPrimary.withValues(alpha: 0.52)),
                   ),
                 ],
@@ -583,8 +595,8 @@ class _EvaluationScreenState extends State<EvaluationScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _cardTitle('รูปภาพหลังการซ่อม'),
-                    _cardSub('แนบรูปเพื่อยืนยันผลงาน (ไม่บังคับ)'),
+                    _cardTitle(widget.isFailedCase ? 'รูปภาพประกอบ' : 'รูปภาพหลังการซ่อม'),
+                    _cardSub(widget.isFailedCase ? 'แนบรูปจุดที่ยังมีปัญหา (ไม่บังคับ)' : 'แนบรูปเพื่อยืนยันผลงาน (ไม่บังคับ)'),
                   ],
                 ),
               ),
@@ -678,8 +690,8 @@ class _EvaluationScreenState extends State<EvaluationScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _cardTitle('ข้อเสนอแนะ'),
-                    _cardSub('แสดงความคิดเห็นเพิ่มเติม (ไม่บังคับ)'),
+                    _cardTitle(widget.isFailedCase ? 'เหตุผลที่ไม่ยอมรับ *' : 'ข้อเสนอแนะ'),
+                    _cardSub(widget.isFailedCase ? 'จำเป็นต้องระบุ' : 'แสดงความคิดเห็นเพิ่มเติม (ไม่บังคับ)'),
                   ],
                 ),
               ),
@@ -698,7 +710,9 @@ class _EvaluationScreenState extends State<EvaluationScreen> {
                 style: GoogleFonts.sarabun(fontSize: 15, color: kRsOnSurface),
                 decoration: InputDecoration(
                   counterText: '',
-                  hintText: 'โปรดระบุข้อเสนอแนะเพื่อพัฒนาคุณภาพการซ่อม...',
+                  hintText: widget.isFailedCase
+                      ? 'เช่น ซ่อมแล้วยังใช้งานไม่ได้เหมือนเดิม...'
+                      : 'โปรดระบุข้อเสนอแนะเพื่อพัฒนาคุณภาพการซ่อม...',
                   hintStyle: GoogleFonts.sarabun(fontSize: 15, color: const Color(0xFFC0B8A8)),
                   filled: true,
                   fillColor: kRsFieldBg,
@@ -753,7 +767,7 @@ class _EvaluationScreenState extends State<EvaluationScreen> {
                   const Icon(Icons.task_alt, color: Colors.white, size: 20),
                   const SizedBox(width: 8),
                   Text(
-                    _isSubmitting ? 'กำลังส่ง...' : (_isEditMode ? 'บันทึกการแก้ไข' : 'ประเมิน'),
+                    _isSubmitting ? 'กำลังส่ง...' : (_isEditMode ? 'บันทึกการแก้ไข' : (widget.isFailedCase ? 'ส่งเหตุผล' : 'ประเมิน')),
                     style: GoogleFonts.sarabun(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white),
                   ),
                 ],

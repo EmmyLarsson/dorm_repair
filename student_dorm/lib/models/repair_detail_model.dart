@@ -10,11 +10,21 @@ class RepairDetail {
   final String statusName;
   final String? technicianName;
   final String? technicianPhone;
+  // วันนัดปัจจุบันของรอบที่เคสอยู่ (รอบแก้ไข = นัดแก้ไข) วันนัดเดิมก่อนเลื่อน/ก่อนเข้ารอบแก้ไขดูจากไทม์ไลน์
   final String? appointmentDate;
   final String? finishDate;
   final String reportDate;
   // จำนวนครั้งที่ยื่นอุทธรณ์ได้ของเคสนี้ — เจ้าหน้าที่ปรับรายเคสได้ 1-5 (ค่าเริ่มต้น 2) backend เป็นผู้กำหนด
   final int maxComplaints;
+  // ปุ่ม "เร่งการจัดการงาน": backend เป็นผู้ตัดสิน (เลยช่วงนัด + สถานะซ่อมอยู่ + พ้นรอบ 24 ชม.) — แอปแค่แสดงตาม
+  // nextRushAt มีค่าเฉพาะตอนยังติดรอบ (เวลาที่กดได้อีกครั้ง)
+  final bool canRush;
+  final String? nextRushAt;
+  // เวลาที่ระบบจะปิดงานให้อัตโนมัติถ้านักศึกษาไม่ยืนยัน (มีค่าเฉพาะสถานะ 3) backend คำนวณจาก finish_date + จำนวนวันที่ตั้งไว้
+  final String? autoCloseAt;
+  // เจ้าหน้าที่ผู้ดูแลเคส (ผู้อนุมัติ) ให้นักศึกษาติดต่อได้ — null ถ้าเคสยังไม่มีผู้อนุมัติ
+  final String? moderatorName;
+  final String? moderatorPhone;
 
   const RepairDetail({
     required this.caseCode,
@@ -32,6 +42,11 @@ class RepairDetail {
     required this.finishDate,
     required this.reportDate,
     required this.maxComplaints,
+    this.canRush = false,
+    this.nextRushAt,
+    this.autoCloseAt,
+    this.moderatorName,
+    this.moderatorPhone,
   });
 
   factory RepairDetail.fromJson(Map<String, dynamic> json) {
@@ -57,6 +72,12 @@ class RepairDetail {
       reportDate: json['report_date'] as String? ?? '',
       // ถ้า backend ไม่ส่งมา (เวอร์ชันเก่า) ใช้ 2 ตามกติกาเดิม
       maxComplaints: json['max_complaints'] as int? ?? 2,
+      // MariaDB ส่ง boolean เป็น 0/1 — รับให้ครบทุกแบบกัน type error
+      canRush: json['can_rush'] == true || json['can_rush'] == 1 || json['can_rush'] == '1',
+      nextRushAt: json['next_rush_at'] as String?,
+      autoCloseAt: json['auto_close_at'] as String?,
+      moderatorName: json['moderator_name'] as String?,
+      moderatorPhone: json['moderator_phone'] as String?,
     );
   }
 }

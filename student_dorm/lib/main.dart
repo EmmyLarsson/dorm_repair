@@ -45,6 +45,12 @@ class MyApp extends StatelessWidget {
         // This works for code too, not just values: Most code changes can be
         // tested with just a hot reload.
         colorScheme: .fromSeed(seedColor: Colors.deepPurple),
+        // ป๊อปอัป (AlertDialog) ทั้งแอปเป็นพื้นขาวล้วน — ไม่ตั้งไว้ Material 3 จะผสมสี seed (ม่วง) ลงในพื้นหลัง
+        // ทำให้ออกชมพูอมม่วงไม่เข้ากับโทนน้ำเงิน/ทองของแอป ตั้งที่ธีมที่เดียวจึงครอบคลุมป๊อปอัปที่เพิ่มทีหลังด้วย
+        dialogTheme: const DialogThemeData(
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.transparent,
+        ),
       ),
       home: const LoginScreen(),
     );

@@ -4,23 +4,6 @@ import 'package:student_dorm/models/repair_request_model.dart';
 import 'package:student_dorm/color/colors.dart';
 import 'package:student_dorm/screen/repair_detail_screen.dart';
 
-const kStatusBarColors = {
-  'รอตรวจสอบ': kRsAmber,
-  'กำลังซ่อม': kNavyMid,
-  // ชื่อสถานะจริงจาก backend คือ "เสร็จสิ้น" ไม่ใช่ "เสร็จแล้ว" — คีย์เดิมเลยไม่เคยแมตช์เลยสักครั้ง
-  // (fallback เป็น kNavyMid สีเดียวกับ "กำลังซ่อม" มาตลอด) แก้ชื่อให้ตรง พร้อมเพิ่ม 2 สถานะใหม่
-  'เสร็จสิ้น': kRsGreen,
-  'ยกเลิก': kRsError,
-  'รอแก้ไข': kGoldDark,
-  'สำเร็จ': kGreenDark,
-  // progress_status_id 7 ใหม่ — เคสที่มีคำร้องอุทธรณ์ค้าง รอเจ้าหน้าที่ตัดสินใจ (ได้รับอนุญาตจากผู้ใช้
-  // ให้เพิ่มบรรทัดนี้แม้ไฟล์นี้จะล็อกไว้ ไม่งั้นแถบสีจะตกไปใช้สีเทา default)
-  'รอตรวจสอบคำร้อง': kRsAmber,
-  // progress_status_id 8 ใหม่ — เคสปิดแบบนักศึกษาไม่ยอมรับผลซ่อม (เพิ่มบรรทัดเดียวเพราะไม่งั้นแถบสีตกไปใช้ default
-  // ผู้ใช้อนุญาตให้แก้ไฟล์ล็อกนี้ได้เช่นเดียวกับบรรทัดของสถานะ 7)
-  'ซ่อมไม่สำเร็จ': kRsError,
-};
-
 class RepairInfo extends StatelessWidget {
   const RepairInfo({super.key, required this.repairrequestModelStore, this.onReturn});
   final List<RepairRequestModel> repairrequestModelStore;
@@ -40,15 +23,19 @@ class RepairInfo extends StatelessWidget {
 }
 
 class RepairInfoCard extends StatelessWidget {
-  const RepairInfoCard({super.key, required this.item, this.onReturn});
+  const RepairInfoCard({super.key, required this.item, this.onReturn, this.note, this.noteColor});
   final RepairRequestModel item;
   // เรียกเมื่อกลับมาจากหน้ารายละเอียด (เผื่อผู้ใช้แก้ไขคำร้องแล้วรายการเดิมค้างข้อมูลเก่า)
   final VoidCallback? onReturn;
+  // ป้ายไฮไลต์เล็กๆ ใต้ปัญหา เช่น "เลยช่วงเวลานัดหมายแล้ว" / "เจ้าหน้าที่อนุมัติคำร้องแล้ว" — ส่งมาจากหน้าโฮมที่แบ่งส่วนเท่านั้น
+  // (ไม่ส่ง = ไม่มีป้าย เหมือนเดิม จึงไม่กระทบหน้าอื่นที่ใช้การ์ดนี้ เช่น หน้าประวัติ)
+  final String? note;
+  final Color? noteColor;
 
   @override
   Widget build(BuildContext context) {
     final textTheme = GoogleFonts.sarabunTextTheme(Theme.of(context).textTheme);
-    final barColor = kStatusBarColors[item.statusName] ?? kNavyMid;
+    final barColor = kStatusColors[item.statusId] ?? kNavyMid;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -68,7 +55,9 @@ class RepairInfoCard extends StatelessWidget {
 
             onReturn?.call();
           },
-          child: Container(
+          child: Stack(
+            children: [
+              Container(
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(18),
                   border: Border.all(color: kGray200),
@@ -138,6 +127,23 @@ class RepairInfoCard extends StatelessWidget {
                                         color: kGray700,
                                       ),
                                     ),
+                                    if (note != null)
+                                      Container(
+                                        margin: const EdgeInsets.only(top: 8),
+                                        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                                        decoration: BoxDecoration(
+                                          color: (noteColor ?? kNavyMid).withValues(alpha: 0.14),
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        child: Text(
+                                          note!,
+                                          style: GoogleFonts.sarabun(
+                                            fontSize: 11.5,
+                                            fontWeight: FontWeight.w700,
+                                            color: noteColor ?? kNavyMid,
+                                          ),
+                                        ),
+                                      ),
                                   ],
                                 ),
                               ),
@@ -182,8 +188,25 @@ class RepairInfoCard extends StatelessWidget {
                   ),
                 ),
               ),
-            ),
+              // จุดแดง = เจ้าหน้าที่อัปเดตเคสนี้หลังจากนักศึกษาเปิดดูล่าสุด (backend คำนวณ has_unread) หายเมื่อเปิดเคส
+              if (item.hasUnread)
+                Positioned(
+                  top: 10,
+                  right: 10,
+                  child: Container(
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE11D48),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 1.5),
+                    ),
+                  ),
+                ),
+            ],
           ),
-        );
+        ),
+      ),
+    );
   }
 }

@@ -13,6 +13,7 @@ Future<void> showRequestDetailModal(
   required int requestId,
   required List<RepairPhoto> photos,
   required void Function(int) onEditPressed,
+  void Function(int)? onCancelPressed,
 }) {
   return showModalBottomSheet(
     context: context,
@@ -23,6 +24,7 @@ Future<void> showRequestDetailModal(
       requestId: requestId,
       photos: photos,
       onEditPressed: onEditPressed,
+      onCancelPressed: onCancelPressed,
     ),
   );
 }
@@ -35,12 +37,15 @@ class RequestDetailModal extends StatelessWidget {
     required this.requestId,
     required this.photos,
     required this.onEditPressed,
+    this.onCancelPressed,
   });
 
   final RepairDetail detail;
   final int requestId;
   final List<RepairPhoto> photos;
   final void Function(int) onEditPressed;
+  // ยกเลิกคำร้องเอง — ปุ่มโผล่เฉพาะสถานะ 1 (ก่อนเจ้าหน้าที่อนุมัติ) เงื่อนไขเดียวกับปุ่ม "แก้ไข" และ backend ตรวจซ้ำอีกชั้น
+  final void Function(int)? onCancelPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -305,6 +310,31 @@ class RequestDetailModal extends StatelessWidget {
               ),
             );
           }),
+          if (detail.statusId == 1 && onCancelPressed != null) ...[
+            const SizedBox(width: 6),
+            Material(
+              color: kRsError.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(999),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(999),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  Future.microtask(() => onCancelPressed!(requestId));
+                },
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.close, size: 16, color: kRsError),
+                      SizedBox(width: 5),
+                      Text('ยกเลิก', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: kRsError)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
           const SizedBox(width: 8),
           Material(
             color: kGray100,

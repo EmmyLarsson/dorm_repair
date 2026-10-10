@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:student_dorm/color/colors.dart';
+import 'package:student_dorm/widgets/evaluation_history/evaluation_filter_chips.dart';
 import 'package:student_dorm/widgets/history/sort_chip.dart';
 
 /// หัวทองของหน้าประวัติการประเมิน — โครงเดียวกับ _HistoryHeader ของหน้าประวัติการแจ้งซ่อม
@@ -16,6 +17,8 @@ class EvaluationHistoryHeader extends StatelessWidget {
     required this.sortKey,
     required this.dateDir,
     required this.onChipTap,
+    required this.filterKey,
+    required this.onFilterTap,
     required this.onBack,
   });
 
@@ -27,6 +30,8 @@ class EvaluationHistoryHeader extends StatelessWidget {
   final String sortKey; // date | rating | type
   final String dateDir; // desc | asc
   final ValueChanged<String> onChipTap;
+  final String filterKey; // all | success | failed
+  final ValueChanged<String> onFilterTap;
   final VoidCallback onBack;
 
   @override
@@ -136,6 +141,9 @@ class EvaluationHistoryHeader extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 10),
+                // กรองตามผลของเคส: สำเร็จ (มีดาว) / ไม่สำเร็จ (ไม่มีดาว) — ปุ่มเรียงตามคะแนนข้างล่างวางเคสไม่มีดาวไว้ท้ายสุด
+                EvaluationFilterChips(filterKey: filterKey, onFilterTap: onFilterTap),
+                const SizedBox(height: 8),
                 Row(
                   children: [
                     Text('เรียงตาม',

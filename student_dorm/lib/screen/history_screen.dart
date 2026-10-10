@@ -8,6 +8,8 @@ import 'package:student_dorm/utils/app_api.dart';
 import 'package:student_dorm/widgets/repair_info.dart';
 import 'package:student_dorm/widgets/history/sort_chip.dart';
 
+const String _kAllTypes = 'all';
+
 const Map<String, String> kSectionTitle = {
   'date': 'รายการทั้งหมด',
   'type': 'เรียงตามประเภทงาน',
@@ -32,13 +34,18 @@ class _HistoryPageState extends State<HistoryPage> {
   String _searchQuery = '';
   String _sortKey = 'date'; // date | type | status
   String _dateDir = 'desc'; // desc | asc
+  // ตัวกรองของ dropdown ประเภทงาน (ใช้เฉพาะตอนเลือกเรียงตามประเภท) — 'all' = แสดงทุกประเภทแยกหัวข้อ
+  String _typeFilter = _kAllTypes;
   List<RepairRequestModel> _repairs = [];
+  // ชื่อประเภทงานทั้งหมดจาก backend (ตาราง repair_type) ให้ dropdown มีครบทุกประเภทแม้ยังไม่เคยแจ้ง
+  List<String> _repairTypeNames = [];
   bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
     _fetchData();
+    _fetchRepairTypes();
   }
 
   @override
@@ -58,10 +65,29 @@ class _HistoryPageState extends State<HistoryPage> {
     });
   }
 
+  Future<void> _fetchRepairTypes() async {
+    try {
+      var response = await AppAPI.get("/repair_type/get_all");
+      Map<String, dynamic> json = jsonDecode(response.body);
+      if (json['isError'] == true) return;
+      final names = (json['data'] as List).map((row) => row['repair_type_name'] as String).toList();
+      if (mounted) setState(() => _repairTypeNames = names);
+    } catch (_) {
+      // ดึงไม่ได้ก็ไม่เป็นไร _typeNames จะถอยไปใช้ชื่อจากเคสที่มีอยู่แทน หน้านี้ยังใช้งานได้
+    }
+  }
+
+  // ถ้าดึงรายชื่อจาก backend ไม่ได้ ใช้ชื่อประเภทที่ปรากฏในเคสแทน (ยังเป็นชื่อจาก backend เหมือนกัน)
+  List<String> get _typeNames =>
+      _repairTypeNames.isNotEmpty ? _repairTypeNames : {for (final c in _repairs) ...c.typeNames}.toList();
+
   /* ── filter + sort (mirrors render() logic in history.js) ── */
   List<RepairRequestModel> get _filteredSorted {
     final q = _searchQuery.trim().toLowerCase();
     var list = _repairs.where((c) {
+      if (_sortKey == 'type' && _typeFilter != _kAllTypes && !c.typeNames.contains(_typeFilter)) {
+        return false;
+      }
       if (q.isEmpty) return true;
       return c.caseCode.toLowerCase().contains(q) ||
           c.description.toLowerCase().contains(q) ||
@@ -83,6 +109,16 @@ class _HistoryPageState extends State<HistoryPage> {
         break;
     }
     return list;
+  }
+
+  // จำนวนเคสต่อประเภท — เคสที่แจ้งหลายประเภทถูกนับในทุกประเภทที่เกี่ยว ผลรวมจึงอาจมากกว่าจำนวนเคสจริง
+  Map<String, int> get _typeCounts => {
+        for (final type in _typeNames)
+          type: _repairs.where((c) => c.typeNames.contains(type)).length,
+      };
+
+  void _onTypeChanged(String value) {
+    setState(() => _typeFilter = value);
   }
 
   void _onSearchChanged(String value) {
@@ -126,6 +162,9 @@ class _HistoryPageState extends State<HistoryPage> {
                 sortKey: _sortKey,
                 dateDir: _dateDir,
                 onChipTap: _onChipTap,
+                typeCounts: _typeCounts,
+                typeFilter: _typeFilter,
+                onTypeChanged: _onTypeChanged,
               ),
               Expanded(
                 child: _isLoading
@@ -165,8 +204,10 @@ class _HistoryPageState extends State<HistoryPage> {
                                 ),
                                 if (_sortKey == 'status')
                                   ..._buildGrouped(list)
+                                else if (_sortKey == 'type')
+                                  ..._buildGroupedByType(list)
                                 else
-                                  ...list.map((c) => RepairInfoCard(item: c, onReturn: _fetchData)),
+                                  ..._buildGroupedByDate(list),
                               ],
                             ),
                           ),
@@ -176,6 +217,52 @@ class _HistoryPageState extends State<HistoryPage> {
         ],
       ),
     );
+  }
+
+  /* ── grouped-by-date list ── เรียงตามวันที่แจ้งอยู่แล้ว (list ผ่าน _filteredSorted มาแล้ว) แค่คั่นด้วยหัวข้อวันที่ที่แจ้ง
+     ใช้ GroupHeader เดิม — createdAt เป็นข้อความ "YYYY-MM-DD HH:mm:ss" ตัด 10 ตัวแรกเป็นวัน ไม่ต้อง parse เวลา ── */
+  List<Widget> _buildGroupedByDate(List<RepairRequestModel> list) {
+    final groups = <String, List<RepairRequestModel>>{};
+    for (final c in list) {
+      final day = c.createdAt.length >= 10 ? c.createdAt.substring(0, 10) : c.createdAt;
+      groups.putIfAbsent(day, () => []).add(c);
+    }
+
+    final now = DateTime.now();
+    final today = '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+
+    final widgets = <Widget>[];
+    groups.forEach((day, items) {
+      widgets.add(GroupHeader(label: _thaiDayLabel(day, isToday: day == today), color: kNavyMid, count: items.length));
+      widgets.addAll(items.map((c) => RepairInfoCard(item: c, onReturn: _fetchData)));
+    });
+    return widgets;
+  }
+
+  // "2026-10-06" → "6 ต.ค. 2569" (+ " · วันนี้") ; ถ้ารูปแบบไม่ตรงคืนข้อความเดิม ไม่ให้หน้าพัง
+  String _thaiDayLabel(String day, {required bool isToday}) {
+    const months = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+    final parts = day.split('-');
+    if (parts.length != 3) return day;
+    final year = int.tryParse(parts[0]);
+    final month = int.tryParse(parts[1]);
+    final dayOfMonth = int.tryParse(parts[2]);
+    if (year == null || month == null || dayOfMonth == null || month < 1 || month > 12) return day;
+    return '$dayOfMonth ${months[month - 1]} ${year + 543}${isToday ? ' · วันนี้' : ''}';
+  }
+
+  /* ── grouped-by-type list ── เคสที่แจ้งหลายประเภทอยู่ในทุกหัวข้อที่เกี่ยวข้อง เพื่อให้เปิดหาตามประเภทไหนก็เจอ ── */
+  List<Widget> _buildGroupedByType(List<RepairRequestModel> list) {
+    final widgets = <Widget>[];
+    for (final type in _typeNames) {
+      // เลือกประเภทเดียวแล้ว เคสที่มีหลายประเภทต้องไม่พาหัวข้อของประเภทอื่นเข้ามาด้วย
+      if (_typeFilter != _kAllTypes && type != _typeFilter) continue;
+      final items = list.where((c) => c.typeNames.contains(type)).toList();
+      if (items.isEmpty) continue;
+      widgets.add(GroupHeader(label: type, color: kNavyMid, count: items.length));
+      widgets.addAll(items.map((c) => RepairInfoCard(item: c, onReturn: _fetchData)));
+    }
+    return widgets;
   }
 
   /* ── grouped-by-status list (mirrors buildGrouped() in history.js) ── */
@@ -190,7 +277,7 @@ class _HistoryPageState extends State<HistoryPage> {
     for (final statusId in sortedKeys) {
       final items = groups[statusId]!;
       final label = items.first.statusName;
-      final color = kStatusBarColors[label] ?? kNavyMid;
+      final color = kStatusColors[statusId] ?? kNavyMid;
       widgets.add(GroupHeader(label: label, color: color, count: items.length));
       widgets.addAll(items.map((c) => RepairInfoCard(item: c, onReturn: _fetchData)));
     }
@@ -213,6 +300,9 @@ class _HistoryHeader extends StatelessWidget {
   final String sortKey;
   final String dateDir;
   final ValueChanged<String> onChipTap;
+  final Map<String, int> typeCounts;
+  final String typeFilter;
+  final ValueChanged<String> onTypeChanged;
 
   const _HistoryHeader({
     required this.total,
@@ -223,6 +313,9 @@ class _HistoryHeader extends StatelessWidget {
     required this.sortKey,
     required this.dateDir,
     required this.onChipTap,
+    required this.typeCounts,
+    required this.typeFilter,
+    required this.onTypeChanged,
   });
 
   @override
@@ -379,10 +472,74 @@ class _HistoryHeader extends StatelessWidget {
                     ),
                   ],
                 ),
+                if (sortKey == 'type') ...[
+                  const SizedBox(height: 10),
+                  _buildTypeDropdown(),
+                ],
               ],
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildTypeDropdown() {
+    final optionLabels = <String, String>{
+      _kAllTypes: 'ทั้งหมด',
+      for (final type in typeCounts.keys) type: type,
+    };
+    int countOf(String value) => value == _kAllTypes ? total : typeCounts[value] ?? 0;
+    final textStyle = GoogleFonts.sarabun(fontSize: 14, fontWeight: FontWeight.w600, color: kNavy);
+
+    return Container(
+      height: 44,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: kGray100,
+        border: Border.all(color: const Color(0xFFE2E8F4), width: 1.5),
+        borderRadius: BorderRadius.circular(11),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          isExpanded: true,
+          value: typeFilter,
+          // จำกัดความสูงเมนูให้เห็นราว 4 แถว ที่เหลือเลื่อนเอา — ไม่ให้เมนูบังรายการด้านล่างมากบนจอเล็ก
+          menuMaxHeight: 220,
+          icon: const Icon(Icons.expand_more, color: kNavy),
+          style: textStyle,
+          selectedItemBuilder: (context) => [
+            for (final entry in optionLabels.entries)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text('ประเภทงาน: ${entry.value} (${countOf(entry.key)})', style: textStyle),
+              ),
+          ],
+          items: [
+            for (final entry in optionLabels.entries)
+              DropdownMenuItem(
+                value: entry.key,
+                // ประเภทที่ไม่มีเคสเลือกไม่ได้ (จางลง) — เห็นว่ามีประเภทนี้ในระบบแต่ยังไม่เคยแจ้ง
+                enabled: countOf(entry.key) > 0,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      entry.value,
+                      style: textStyle.copyWith(color: countOf(entry.key) > 0 ? kNavy : const Color(0xFFB6BCC8)),
+                    ),
+                    Text(
+                      '${countOf(entry.key)}',
+                      style: GoogleFonts.sarabun(fontSize: 13, fontWeight: FontWeight.w700, color: const Color(0xFF9CA3AF)),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+          onChanged: (value) {
+            if (value != null) onTypeChanged(value);
+          },
+        ),
       ),
     );
   }

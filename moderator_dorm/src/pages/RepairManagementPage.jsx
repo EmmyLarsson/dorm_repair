@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { Fragment, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import BaseModal from '../components/BaseModal';
@@ -15,6 +15,19 @@ import { photoFullUrl } from '../utils/photoUtil';
 import { appointmentToastLabel } from '../utils/appointmentLabel';
 import { RepairRequestModel } from '../models/repairRequestModel';
 import { InventoryModel } from '../models/inventoryModel';
+import { markCaseNotificationsRead } from '../utils/caseNotification';
+import {
+  ALL_SUB,
+  MONITOR_GROUPS,
+  SORT_OPTIONS,
+  SORT_PRIORITY,
+  STATUS_FILTERS,
+  comparatorOfSort,
+  repairsOfFacets,
+  repairsOfMain,
+  repairsOfSub,
+  unreadCount,
+} from '../utils/repairMonitor';
 
 const CARDS_PER_PAGE = 6;
 
@@ -40,6 +53,28 @@ function mapRepairRequestRow(row) {
     appointmentDate: model.appointmentDate,
     appointmentDateLabel: model.getAppointmentDateLabel(),
     maxComplaints: model.maxComplaints,
+    rushedAt: model.rushedAt,
+    rushCount: model.rushCount,
+    rushReasonName: model.rushReasonName,
+    rushReasonNote: model.rushReasonNote,
+    isRushUrgent: model.isRushUrgent,
+    complaintCount: model.complaintCount,
+    appealFiledAt: model.appealFiledAt,
+    appealReasonName: model.appealReasonName,
+    studentUnreadCount: model.studentUnreadCount,
+    unreadEventTypes: model.unreadEventTypes,
+    isDueToday: model.isDueToday,
+    isOverdue: model.isOverdue,
+    isUnscheduled: model.isUnscheduled,
+    isReportedToday: model.isReportedToday,
+    isWaitingOverDay: model.isWaitingOverDay,
+    isStaleUnconfirmed: model.isStaleUnconfirmed,
+    autoCloseAt: model.autoCloseAt,
+    isStudentCancelled: model.isStudentCancelled,
+    evaluationRating: model.evaluationRating,
+    evaluationFeedback: model.evaluationFeedback,
+    declineReason: model.declineReason,
+    createdAt: model.createdAt,
   };
 }
 
@@ -48,16 +83,6 @@ async function getAllRepairRequests() {
   const json = await response.json();
 
   return (Array.isArray(json.data) ? json.data : []).map(mapRepairRequestRow);
-}
-
-async function getProgressStatusList() {
-  const response = await AppAPI.get("/progress_status/get_all");
-  const json = await response.json();
-
-  return (Array.isArray(json.data) ? json.data : []).map((row) => ({
-    id: row.progress_status_id,
-    name: row.progress_status_name,
-  }));
 }
 
 async function approveRepairRequest(requestId) {
@@ -339,7 +364,7 @@ function formatThaiDateShort(dateStr) {
 // มินิปฏิทินเช็คคิวนัดหมาย 7 วันล่วงหน้า × 3 ช่วงเวลา — คลิกช่องเพื่อเลือกวันที่/ช่วงเวลาแทนช่อง
 // input วันที่ + select ช่วงเวลาแบบเดิม (mockup 2 แบบเทียบกันแล้ว ผู้ใช้เลือกแบบนี้เพราะเห็นภาพรวม
 // หลายวันพร้อมกัน มีประโยชน์เวลาต้องหาวันว่างสำหรับเคสที่ไม่อนุญาตเข้าห้อง/เคสเลื่อนนัด)
-function SlotAvailabilityCalendar({ minDate, availability, selectedDate, selectedTimeslot, onPick }) {
+function SlotAvailabilityCalendar({ minDate, availability, selectedDate, selectedTimeslot, onPick, isRevisionRound = false }) {
   if (!minDate) return null;
 
   const days = Array.from({ length: 7 }, (_, i) => addDaysToDateStr(minDate, i));
@@ -348,7 +373,7 @@ function SlotAvailabilityCalendar({ minDate, availability, selectedDate, selecte
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <label className="text-sm font-bold">นัดหมายวันซ่อม + ช่วงเวลา</label>
+        <label className="text-sm font-bold">{isRevisionRound ? 'นัดหมายวันแก้ไข + ช่วงเวลา' : 'นัดหมายวันซ่อม + ช่วงเวลา'}</label>
         <div className="flex items-center gap-3 text-[11px] text-slate-500">
           <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-50 border-[1.5px] border-emerald-300 inline-block" />ว่าง</span>
           <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-100 border-[1.5px] border-amber-300 inline-block" />จองบางส่วน</span>
@@ -417,15 +442,52 @@ function SlotAvailabilityCalendar({ minDate, availability, selectedDate, selecte
   );
 }
 
+// ปุ่มกรองเล็กของหน้านี้ (ปุ่มกรองสถานะ/เรื่องเร่งด่วน/ตัวกรองย่อย) — ใช้เฉพาะหน้านี้จึงไม่ย้ายไป components/ จนกว่าหน้าอื่นจะใช้
+// unread = จำนวนเคสที่ยังไม่เปิดดู แสดงเป็นป้ายแดงเล็ก "ในปุ่ม" ต่อจากจำนวนรวม (0 = ไม่แสดง) ไม่ลอยทับมุมปุ่ม เพื่อไม่ให้ซ้อนกับ
+// ปุ่มข้างๆ — ปุ่มตัวกรองย่อย (small) แสดงเฉพาะตัวเลข ส่วนปุ่มชั้นบนมีคำว่า "ใหม่" ต่อท้ายให้เข้าใจความหมาย; เกิน 9 แสดง "9+"
+function FilterChip({ label, icon, count, unread = 0, isActive, small = false, onClick }) {
+  const sizeClass = small ? 'px-3.5 py-1.5 text-[13px]' : 'px-4 py-2 text-sm';
+  const toneClass = isActive
+    ? 'border-slate-900 bg-slate-900 text-white'
+    : `border-slate-200 bg-white hover:bg-slate-50 ${count === 0 ? 'text-slate-400' : 'text-slate-600'}`;
+
+  return (
+    <button
+      type="button"
+      aria-pressed={isActive}
+      onClick={onClick}
+      className={`flex items-center gap-1.5 rounded-full border-[1.5px] font-semibold transition ${sizeClass} ${toneClass}`}
+    >
+      {icon && <span className="material-symbols-outlined text-lg">{icon}</span>}
+      {label}
+      <span className="text-xs opacity-75">{count}</span>
+      {unread > 0 && (
+        <span className="rounded-full bg-rose-600 px-1.5 py-px text-[11px] font-extrabold text-white">
+          {unread > 9 ? '9+' : unread}
+          {!small && ' ใหม่'}
+        </span>
+      )}
+    </button>
+  );
+}
+
 function RepairManagementPage() {
   const location = useLocation();
   const navigate = useNavigate();
 
   const [repairData, setRepairData] = useState([]);
-  const [statusList, setStatusList] = useState([]);
   const [technicianList, setTechnicianList] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  // ปุ่มหลัก (ต้องจัดการ / ทั้งหมด) — เปิดหน้ามาที่ "ต้องจัดการ" ก่อนเสมอ (เรื่องเร่งด่วนเรียงตามความสำคัญ)
+  // ใต้ "ต้องจัดการ" subName คือเรื่องเร่งด่วน; ใต้ "ทั้งหมด" filterKey คือปุ่มกรองสถานะ (null = ทุกสถานะ) และ subName/facetValues
+  // คือตัวกรองย่อยของปุ่มนั้น (facetValues ใช้กับ "แจ้งเข้ามา" ที่แยก 2 แถว)
+  const [mainKey, setMainKey] = useState('todo');
+  const [filterKey, setFilterKey] = useState(null);
+  const [subName, setSubName] = useState(ALL_SUB);
+  const [facetValues, setFacetValues] = useState({});
+  // ตัวเลือกเรียง/ประเภทงานใช้เฉพาะปุ่ม "ทั้งหมด" (กลุ่มอื่นมีปุ่มย่อยของตัวเอง) — ค่าว่าง = ทุกประเภท
+  const [sortValue, setSortValue] = useState(SORT_PRIORITY);
+  const [typeFilter, setTypeFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
 
   const [isLoading, setIsLoading] = useState(true);
@@ -435,6 +497,11 @@ function RepairManagementPage() {
 
   // Modal 1: Inspect (ใช้ component กลางร่วมกับหน้า Home)
   const [inspectRequestId, setInspectRequestId] = useState(null);
+
+  // เปิด modal "ดูรายละเอียด" (ทั้งจากกดการ์ดและจากกดแจ้งเตือน) → ล้างแจ้งเตือนของเคสนั้น (ป้าย "มีอัปเดตใหม่")
+  useEffect(() => {
+    if (inspectRequestId) markCaseNotificationsRead(inspectRequestId);
+  }, [inspectRequestId]);
 
   // ปฏิเสธงานที่รอตรวจสอบ (กดจากปุ่มบนการ์ดโดยตรง)
   const [rejectingRepair, setRejectingRepair] = useState(null);
@@ -504,16 +571,14 @@ function RepairManagementPage() {
       }
       setError('');
 
-      const [repairs, statuses, technicians, equipments, equipmentTypes] = await Promise.all([
+      const [repairs, technicians, equipments, equipmentTypes] = await Promise.all([
         getAllRepairRequests(),
-        getProgressStatusList(),
         getTechnicianList(),
         getAllEquipment(),
         getEquipmentTypeList(),
       ]);
 
       setRepairData(Array.isArray(repairs) ? repairs : []);
-      setStatusList(Array.isArray(statuses) ? statuses : []);
       setTechnicianList(Array.isArray(technicians) ? technicians : []);
       setEquipmentList(Array.isArray(equipments) ? equipments : []);
       setEquipmentTypeList(Array.isArray(equipmentTypes) ? equipmentTypes : []);
@@ -559,19 +624,124 @@ function RepairManagementPage() {
     return repairData.find((r) => r.id === requestId);
   }
 
-  /* ─── Filter + Pagination ─── */
+  /* ─── ปุ่มหลัก/ปุ่มกรอง + ค้นหา + เรียงตามความสำคัญ + Pagination ─── */
+  const activeGroup = MONITOR_GROUPS.find((group) => group.key === mainKey) ?? MONITOR_GROUPS[0];
+  const activeFilter = mainKey === 'all' ? STATUS_FILTERS.find((filter) => filter.key === filterKey) ?? null : null;
+
+  // จำนวนและตัวเลขแดงของปุ่มหลักทั้งสองปุ่ม (คำนวณจากทุกเคส ไม่ขึ้นกับช่องค้นหา เจ้าหน้าที่จะได้เห็นว่าอีกปุ่มมีอะไรรออยู่)
+  const groupSummaries = useMemo(
+    () =>
+      MONITOR_GROUPS.map((group) => {
+        const items = repairsOfMain(repairData, group.key);
+        return { group, count: items.length, unread: unreadCount(items) };
+      }),
+    [repairData],
+  );
+
+  const mainItems = useMemo(() => repairsOfMain(repairData, mainKey), [repairData, mainKey]);
+  const activeGroupCount = mainItems.length;
+
+  // ปุ่มกรองแถวที่ 2: "ต้องจัดการ" = เรื่องเร่งด่วน / "ทั้งหมด" = สถานะ (เรียงตามขั้นตอนของงาน) พร้อมจำนวนและตัวเลขแดง
+  const chipSummaries = useMemo(() => {
+    if (mainKey === 'todo') {
+      return Object.keys(activeGroup.subs).map((name) => {
+        const items = repairsOfSub(mainItems, activeGroup.subs, name);
+        return { key: name, label: name, count: items.length, unread: unreadCount(items) };
+      });
+    }
+    return STATUS_FILTERS.map((filter) => {
+      const items = mainItems.filter(filter.test);
+      return { key: filter.key, label: filter.label, icon: filter.icon, count: items.length, unread: unreadCount(items) };
+    });
+  }, [mainKey, activeGroup, mainItems]);
+
+  // ปุ่มกรองแถวที่ 3 ของปุ่มสถานะที่เลือก — ปุ่มที่แบ่งกลุ่มพอดี (subs) หรือ 2 แถวอิสระ (facets ของ "แจ้งเข้ามา") ที่ตัวเลขแถวหนึ่ง
+  // เปลี่ยนตามที่เลือกในอีกแถว จึงไม่นับเคสเดียวซ้ำหลายปุ่ม
+  const filterItems = useMemo(
+    () => (activeFilter ? mainItems.filter(activeFilter.test) : mainItems),
+    [mainItems, activeFilter],
+  );
+
+  const subSummaries = useMemo(() => {
+    if (!activeFilter?.subs) return [];
+    return Object.keys(activeFilter.subs).map((name) => {
+      const items = repairsOfSub(filterItems, activeFilter.subs, name);
+      return { name, count: items.length, unread: unreadCount(items) };
+    });
+  }, [activeFilter, filterItems]);
+
+  const facetSummaries = useMemo(() => {
+    if (!activeFilter?.facets) return [];
+    return activeFilter.facets.map((facet) => {
+      const base = repairsOfFacets(filterItems, activeFilter.facets, facetValues, facet.key);
+      return {
+        key: facet.key,
+        label: facet.label,
+        options: [
+          { name: ALL_SUB, count: base.length, unread: unreadCount(base) },
+          ...Object.keys(facet.options).map((name) => {
+            const items = repairsOfSub(base, facet.options, name);
+            return { name, count: items.length, unread: unreadCount(items) };
+          }),
+        ],
+      };
+    });
+  }, [activeFilter, filterItems, facetValues]);
+
+  // เปลี่ยนปุ่มหลัก/ปุ่มกรองแล้วล้างตัวกรองย่อยที่เลือกไว้ (ไม่ค้างค่าของปุ่มเดิมที่ไม่มีให้เห็นแล้ว) และกลับหน้าแรกของรายการ
+  function selectMain(key) {
+    setMainKey(key);
+    setFilterKey(null);
+    setSubName(ALL_SUB);
+    setFacetValues({});
+    setCurrentPage(1);
+  }
+
+  // "ต้องจัดการ" ปุ่มกรองคือเรื่องเร่งด่วน (เก็บใน subName) / "ทั้งหมด" ปุ่มกรองคือสถานะ (เก็บใน filterKey)
+  function selectChip(key) {
+    if (mainKey === 'todo') {
+      setSubName(key);
+    } else {
+      setFilterKey(key);
+      setSubName(ALL_SUB);
+      setFacetValues({});
+    }
+    setCurrentPage(1);
+  }
+
+  // ประเภทงานที่มีในข้อมูลตอนนี้ พร้อมจำนวนเคส (เคสที่มีหลายประเภทนับในทุกประเภทที่เกี่ยวข้อง) ใช้กับเมนูของปุ่ม "ทั้งหมด"
+  // TODO: 🔌 ดึงจาก /api/repair_type/get_all ถ้าต้องการให้ขึ้นครบทุกประเภทแม้ยังไม่มีเคส
+  const typeOptions = useMemo(() => {
+    const counts = new Map();
+    repairData.forEach((r) => (r.typeNames ?? []).forEach((name) => counts.set(name, (counts.get(name) ?? 0) + 1)));
+    return [...counts.entries()].sort(([a], [b]) => a.localeCompare(b, 'th')).map(([name, count]) => ({ name, count }));
+  }, [repairData]);
+
+  // เรียงลำดับ/ประเภทงานแสดงและมีผลเฉพาะตอนเลือก "ทั้งหมด" + "ทุกสถานะ" (ปุ่มกรองอื่นเรียงตามความสำคัญและมีตัวกรองของตัวเองอยู่แล้ว)
+  const isAllGroup = mainKey === 'all' && filterKey === null;
+
   const filteredData = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
-    return repairData.filter((r) => {
-      const matchesSearch =
-        term === '' ||
-        r.caseCode.toLowerCase().includes(term) ||
-        r.studentName.toLowerCase().includes(term) ||
-        r.roomNumber.toLowerCase().includes(term);
-      const matchesStatus = statusFilter === 'all' || r.statusId === statusFilter;
-      return matchesSearch && matchesStatus;
-    });
-  }, [repairData, searchTerm, statusFilter]);
+    // "ต้องจัดการ" กรองด้วยเรื่องเร่งด่วนที่เลือก; "ทั้งหมด" กรองด้วยปุ่มสถานะ แล้วตามด้วยปุ่มย่อยหรือ facet ของปุ่มนั้น
+    let items = mainItems;
+    if (mainKey === 'todo') {
+      items = repairsOfSub(items, activeGroup.subs, subName);
+    } else if (activeFilter) {
+      items = repairsOfFacets(items.filter(activeFilter.test), activeFilter.facets ?? [], facetValues);
+      items = repairsOfSub(items, activeFilter.subs, subName);
+    }
+
+    return items
+      .filter(
+        (r) =>
+          term === '' ||
+          r.caseCode.toLowerCase().includes(term) ||
+          r.studentName.toLowerCase().includes(term) ||
+          r.roomNumber.toLowerCase().includes(term),
+      )
+      .filter((r) => !isAllGroup || typeFilter === '' || (r.typeNames ?? []).includes(typeFilter))
+      .sort(comparatorOfSort(isAllGroup ? sortValue : SORT_PRIORITY));
+  }, [mainItems, mainKey, activeGroup, activeFilter, facetValues, searchTerm, subName, isAllGroup, sortValue, typeFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredData.length / CARDS_PER_PAGE));
   const safePage = Math.min(currentPage, totalPages);
@@ -579,17 +749,6 @@ function RepairManagementPage() {
     (safePage - 1) * CARDS_PER_PAGE,
     (safePage - 1) * CARDS_PER_PAGE + CARDS_PER_PAGE,
   );
-
-  const statusCounts = useMemo(() => {
-    const counts = { all: repairData.length };
-    for (const status of statusList) {
-      counts[status.id] = 0;
-    }
-    repairData.forEach((r) => {
-      counts[r.statusId] = (counts[r.statusId] ?? 0) + 1;
-    });
-    return counts;
-  }, [repairData, statusList]);
 
   /* ─── Modal 1: Inspect ─── */
   async function handleApprove(detail) {
@@ -644,6 +803,7 @@ function RepairManagementPage() {
   async function openManageModal(requestId) {
     const r = findCase(requestId);
     if (!r) return;
+    markCaseNotificationsRead(requestId);
     setManageRequestId(requestId);
     setLimitDraft(r.maxComplaints);
     if (r.statusId === 7) {
@@ -1053,6 +1213,7 @@ function RepairManagementPage() {
   const reviewRepair = reviewRequestId ? findCase(reviewRequestId) : null;
 
   async function openReviewModal(requestId, initialTab = 'report') {
+    markCaseNotificationsRead(requestId);
     setReviewRequestId(requestId);
     setReviewTab(initialTab);
     const [items, complaints, evaluation, timeline] = await Promise.all([
@@ -1096,26 +1257,117 @@ function RepairManagementPage() {
         </div>
       </div>
 
-      {/* Status filter pills — ดึงชื่อสถานะจากฐานข้อมูลเท่านั้น */}
-      <div className="flex gap-3 flex-wrap">
-        <StatusPill
-          icon="apps"
-          label="ดูทั้งหมด"
-          count={statusCounts.all}
-          isActive={statusFilter === 'all'}
-          onClick={() => { setStatusFilter('all'); setCurrentPage(1); }}
+      {/* ปุ่มหลัก 2 ปุ่ม (ต้องจัดการ / ทั้งหมด) → ปุ่มกรองของปุ่มที่เลือก → ตัวกรองย่อยของปุ่มกรองนั้น
+          ตัวเลขแดงมุมปุ่ม = จำนวนเคสที่ยังไม่เปิดดู (แทนจุดแดงเดิม) */}
+      <div className="flex flex-wrap items-center gap-3">
+        {groupSummaries.map(({ group, count, unread }, index) => (
+          <Fragment key={group.key}>
+            {index === 1 && <span className="h-8 w-px bg-slate-300" />}
+            <StatusPill
+              icon={group.icon}
+              label={group.label}
+              count={count}
+              isActive={mainKey === group.key}
+              unreadCount={unread}
+              onClick={() => selectMain(group.key)}
+            />
+          </Fragment>
+        ))}
+      </div>
+
+      <div className="flex flex-wrap gap-2.5">
+        <FilterChip
+          label={mainKey === 'todo' ? 'ทุกเรื่อง' : 'ทุกสถานะ'}
+          icon="view_list"
+          count={activeGroupCount}
+          unread={unreadCount(mainItems)}
+          isActive={mainKey === 'todo' ? subName === ALL_SUB : filterKey === null}
+          onClick={() => selectChip(mainKey === 'todo' ? ALL_SUB : null)}
         />
-        {statusList.map((status) => (
-          <StatusPill
-            key={status.id}
-            status={status.id}
-            label={status.name}
-            count={statusCounts[status.id] ?? 0}
-            isActive={statusFilter === status.id}
-            onClick={() => { setStatusFilter(status.id); setCurrentPage(1); }}
+        {chipSummaries.map((chip) => (
+          <FilterChip
+            key={chip.key}
+            label={chip.label}
+            icon={chip.icon}
+            count={chip.count}
+            unread={chip.unread}
+            isActive={mainKey === 'todo' ? subName === chip.key : filterKey === chip.key}
+            onClick={() => selectChip(chip.key)}
           />
         ))}
       </div>
+
+      {/* "ต้องจัดการ": เคสหนึ่งอยู่ได้หลายเรื่อง ตัวเลขรวมจึงนับไม่ซ้ำและอาจน้อยกว่าผลรวมของปุ่มเรื่องเร่งด่วน */}
+      {mainKey === 'todo' && (
+        <p className="-mt-3 text-xs text-slate-500">เคสหนึ่งอยู่ได้หลายเรื่อง (เช่น ถูกเร่งและเกินนัด) ตัวเลข "ต้องจัดการ" นับเคสไม่ซ้ำ</p>
+      )}
+
+      {subSummaries.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {[{ name: ALL_SUB, count: filterItems.length, unread: unreadCount(filterItems) }, ...subSummaries].map(
+            ({ name, count, unread }) => (
+              <FilterChip
+                key={name}
+                small
+                label={name}
+                count={count}
+                unread={unread}
+                isActive={subName === name}
+                onClick={() => { setSubName(name); setCurrentPage(1); }}
+              />
+            ),
+          )}
+        </div>
+      )}
+
+      {facetSummaries.map((facet) => (
+        <div key={facet.key} className="flex flex-wrap items-center gap-2">
+          <span className="min-w-20 text-[13px] font-bold text-slate-500">{facet.label}</span>
+          {facet.options.map(({ name, count, unread }) => (
+            <FilterChip
+              key={name}
+              small
+              label={name === ALL_SUB ? 'ทั้งหมด' : name}
+              count={count}
+              unread={unread}
+              isActive={(facetValues[facet.key] ?? ALL_SUB) === name}
+              onClick={() => { setFacetValues((values) => ({ ...values, [facet.key]: name })); setCurrentPage(1); }}
+            />
+          ))}
+        </div>
+      ))}
+
+      {/* เรียงลำดับ + ประเภทงาน ใช้เฉพาะ "ทั้งหมด" + "ทุกสถานะ" */}
+      {isAllGroup && (
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-[13px] font-semibold text-slate-500">
+            เรียงตาม
+            <select
+              value={sortValue}
+              onChange={(e) => { setSortValue(e.target.value); setCurrentPage(1); }}
+              className="rounded-xl border-[1.5px] border-slate-300 bg-white px-3 py-2 text-[13px] font-semibold text-slate-900 focus:border-blue-800 focus:outline-none focus:ring-4 focus:ring-blue-800/10"
+            >
+              {SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex items-center gap-2 text-[13px] font-semibold text-slate-500">
+            ประเภทงาน
+            <select
+              value={typeFilter}
+              onChange={(e) => { setTypeFilter(e.target.value); setCurrentPage(1); }}
+              className="rounded-xl border-[1.5px] border-slate-300 bg-white px-3 py-2 text-[13px] font-semibold text-slate-900 focus:border-blue-800 focus:outline-none focus:ring-4 focus:ring-blue-800/10"
+            >
+              <option value="">ทุกประเภท ({activeGroupCount})</option>
+              {typeOptions.map(({ name, count }) => (
+                <option key={name} value={name}>{name} ({count})</option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
 
       {/* แถบลบรายการแจ้งซ่อม (เฉพาะหน้านี้) */}
       {filteredData.length > 0 && (
@@ -1396,7 +1648,7 @@ function RepairManagementPage() {
         {/* แทนช่องวันที่+ช่วงเวลาเดิมด้วยปุ่มสรุปสั้นๆ กดแล้วเปิดมินิปฏิทินเป็น popup ซ้อนขึ้นมาแทน
             (รูปแบบเดียวกับ RejectReasonModal ที่ซ้อนบน popup นี้อยู่แล้ว) กันไม่ให้ popup หลักรกเกินไป */}
         <div className="flex flex-col gap-2">
-          <label className="text-sm font-bold">นัดหมายวันซ่อม + ช่วงเวลา</label>
+          <label className="text-sm font-bold">{manageRound > 0 ? 'นัดหมายวันแก้ไข + ช่วงเวลา' : 'นัดหมายวันซ่อม + ช่วงเวลา'}</label>
           <button
             type="button"
             onClick={() => setIsSlotPickerOpen(true)}
@@ -1645,6 +1897,7 @@ function RepairManagementPage() {
           availability={slotAvailability}
           selectedDate={manageForm.date}
           selectedTimeslot={manageForm.timeslot}
+          isRevisionRound={manageRound > 0}
           onPick={(date, timeslot) => {
             setManageForm((f) => ({ ...f, date, timeslot }));
             setIsSlotPickerOpen(false);
@@ -1759,13 +2012,25 @@ function RepairManagementPage() {
                 )}
               </div>
             ) : reviewRepair?.statusId === 8 ? (
-              // สถานะ "ซ่อมไม่สำเร็จ" ไม่มีดาวประเมิน (นักศึกษาบอกไม่พอใจไปแล้วตั้งแต่กด "ไม่ยอมรับ")
-              // แต่มีเหตุผลที่กรอกไว้ตอนนั้นแทน (เก็บใน timeline step 'declined')
+              // สถานะ "ซ่อมไม่สำเร็จ" ไม่มีดาว: เหตุผล/รูปที่นักศึกษาส่งเป็นการประเมินแบบไม่มีดาว (repair_evaluation)
+              // ถอยไปใช้เหตุผลใน timeline step 'declined' สำหรับเคสที่ปิดจากแอปเวอร์ชันเก่าซึ่งส่งเหตุผลมาตอนกด "ไม่ยอมรับ"
               <div className="flex flex-col gap-2">
                 <label className="text-sm font-bold text-red-700">เหตุผลที่นักศึกษาไม่ยอมรับผลการซ่อม</label>
                 <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3.5 text-sm min-h-12 whitespace-pre-wrap">
-                  {reviewDeclineReason || 'ไม่ได้ระบุเหตุผล'}
+                  {reviewEvaluation?.feedback || reviewDeclineReason || 'ไม่ได้ระบุเหตุผล'}
                 </div>
+                {reviewEvaluation?.photos.length > 0 && (
+                  <div className="grid grid-cols-3 gap-2">
+                    {reviewEvaluation.photos.map((photo) => (
+                      <img
+                        key={photo.photoId}
+                        src={photoFullUrl(photo.photoUrl)}
+                        alt="รูปประกอบเหตุผลที่ไม่ยอมรับ"
+                        className="aspect-square w-full rounded-xl object-cover border border-slate-200"
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
             ) : reviewEvaluation ? (
               <div className="grid md:grid-cols-2 gap-6">

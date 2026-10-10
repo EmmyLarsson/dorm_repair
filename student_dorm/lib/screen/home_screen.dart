@@ -8,6 +8,28 @@ import 'package:student_dorm/color/colors.dart';
 import 'package:student_dorm/utils/app_api.dart';
 import 'package:student_dorm/widgets/repair_info.dart';
 import 'package:student_dorm/widgets/home/status_card.dart';
+import 'package:student_dorm/widgets/home/notification_sheet.dart';
+import 'package:student_dorm/models/student_notification_model.dart';
+import 'package:student_dorm/screen/repair_detail_screen.dart';
+
+const String _kSubAll = 'ทั้งหมด';
+
+// หัวข้อใหญ่ของหน้าโฮม (แทนปุ่มกรองสถานะ 7 ใบเดิม) — สถานะเดียวกันใช้สีจาก kStatusColors ชุดเดียวกับหน้าประวัติ
+class _MainGroup {
+  const _MainGroup(this.key, this.label, this.statusIds, this.colorStatusId, this.subs);
+  final String key;
+  final String label;
+  final List<int> statusIds;
+  final int colorStatusId;
+  final List<String> subs;
+}
+
+const List<_MainGroup> _kMainGroups = [
+  _MainGroup('new', 'รอตรวจสอบ', [1], 1, []),
+  _MainGroup('fix', 'อยู่ระหว่างการซ่อม', [2], 2, [_kSubAll, 'รอซ่อม', 'นัดหมายวันนี้', 'เกินนัดหมาย']),
+  _MainGroup('rev', 'อยู่ระหว่างการแก้ไข', [5, 7], 5, [_kSubAll, 'รอตรวจสอบอุทธรณ์', 'รอแก้ไข', 'นัดหมายวันนี้', 'เกินนัดหมาย']),
+  _MainGroup('done', 'เสร็จสิ้น', [3, 6, 8, 4], 6, [_kSubAll, 'รอยืนยัน', 'สำเร็จ', 'ไม่สำเร็จ', 'ถูกยกเลิก']),
+];
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -18,25 +40,61 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   List<RepairRequestModel> repairrequestModelStore = [];
-  int? activeStatusId;
-  int cntPending = 0;
-  int cntWorking = 0;
-  int cntDone = 0;
-  int cntPendingComplaintReview = 0;
-  int cntUnderRevision = 0;
-  int cntSuccess = 0;
-  int cntFailed = 0;
+  // หัวข้อใหญ่ที่เลือกอยู่ (null = ทุกหัวข้อ) และหัวข้อย่อยในนั้น
+  String? _activeMain;
+  String _activeSub = _kSubAll;
   bool _isLoading = true;
   String? _errorMessage;
+  List<StudentNotification> _notifications = [];
+  int _unreadCaseCount = 0;
+
+  // งานที่ปิดแล้ว (สำเร็จ/ไม่สำเร็จ/ยกเลิก) โชว์บนโฮมแค่ไม่กี่วันหลังปิด (backend เป็นคนตัดสินผ่าน isRecentlyClosed)
+  // เก่ากว่านั้นไปดูที่หน้าประวัติ — สถานะ 3 (รอ นศ. ยืนยัน) ไม่ตัดออก เพราะ นศ. ยังต้องกดยืนยัน/ยื่นคำร้อง
+  bool _isVisible(RepairRequestModel r) =>
+      !(const [4, 6, 8].contains(r.statusId)) || r.isRecentlyClosed;
+
+  bool _inGroup(RepairRequestModel r, _MainGroup g) => g.statusIds.contains(r.statusId);
+
+  bool _matchesSub(RepairRequestModel r, String sub) {
+    switch (sub) {
+      case _kSubAll:
+        return true;
+      case 'รอซ่อม':
+        return r.statusId == 2 && !r.isDueToday && !r.isOverdue;
+      case 'นัดหมายวันนี้':
+        return r.isDueToday;
+      case 'เกินนัดหมาย':
+        return r.isOverdue;
+      case 'รอตรวจสอบอุทธรณ์':
+        return r.statusId == 7;
+      case 'รอแก้ไข':
+        return r.statusId == 5;
+      case 'รอยืนยัน':
+        return r.statusId == 3;
+      case 'สำเร็จ':
+        return r.statusId == 6;
+      case 'ไม่สำเร็จ':
+        return r.statusId == 8;
+      case 'ถูกยกเลิก':
+        return r.statusId == 4;
+    }
+    return true;
+  }
+
+  // เคสที่นัดหมายวันนี้ขึ้นบนสุดเสมอ (ทุกหัวข้อ) เพราะเป็นวันที่ช่างจะมา นักศึกษาต้องเห็นก่อนอย่างอื่น — คงลำดับเดิม
+  // ของส่วนที่เหลือไว้ (sort ของ Dart ไม่รับประกันความเสถียร จึงแยกเป็น 2 ลิสต์แล้วต่อกันแทน)
+  List<RepairRequestModel> _dueTodayFirst(Iterable<RepairRequestModel> items) {
+    final list = items.toList();
+    return [...list.where((r) => r.isDueToday), ...list.where((r) => !r.isDueToday)];
+  }
 
   List<RepairRequestModel> get _filteredRepairs {
-    if (activeStatusId == null) {
-      return repairrequestModelStore;
+    final visible = repairrequestModelStore.where(_isVisible);
+    if (_activeMain == null) {
+      return _dueTodayFirst(visible);
     }
-
-    return repairrequestModelStore
-        .where((item) => item.statusId == activeStatusId)
-        .toList();
+    final group = _kMainGroups.firstWhere((g) => g.key == _activeMain);
+    return _dueTodayFirst(visible.where((r) => _inGroup(r, group) && _matchesSub(r, _activeSub)));
   }
 
   void _fetchData() async {
@@ -46,48 +104,76 @@ class _HomeScreenState extends State<HomeScreen> {
     RepairRequestResponse repairResponse = RepairRequestResponse.fromJson(json);
     // print(repairResponse.data.length);
 
-    // เดิมนับแค่สถานะ 1/2/3 พอมีสถานะใหม่ "รอแก้ไข"(5)/"สำเร็จ"(6) เพิ่มเข้ามา เคสที่อยู่ 2 สถานะนี้
-    // จะไม่ถูกนับในสถิติที่ไหนเลย (หายไปจากหน้าแรกทั้งหมด) เลยเพิ่ม 2 หมวดใหม่แยกจากของเดิม
-    // (ตอนนี้เพิ่มสถานะ 7 "รอตรวจสอบคำร้อง" อีกหมวดด้วยเหตุผลเดียวกัน)
-    int pending = 0, working = 0, done = 0, pendingComplaintReview = 0, underRevision = 0, success = 0, failed = 0;
-    for (var item in repairResponse.data) {
-      if (item.statusId == 1)
-        pending++;
-      else if (item.statusId == 2)
-        working++;
-      else if (item.statusId == 3)
-        done++;
-      else if (item.statusId == 7)
-        pendingComplaintReview++;
-      else if (item.statusId == 5)
-        underRevision++;
-      else if (item.statusId == 6)
-        success++;
-      else if (item.statusId == 8)
-        failed++;
-    }
-
+    // จำนวนในแต่ละหัวข้อคำนวณสดจากรายการ (_countOf) ไม่เก็บตัวนับแยกต่อสถานะเหมือนเดิมแล้ว
+    // เพราะหัวข้อใหม่รวมหลายสถานะและต้องตัดงานปิดเก่าออก
     setState(() {
       _isLoading = false;
       repairrequestModelStore = repairResponse.data;
-      cntPending = pending;
-      cntWorking = working;
-      cntDone = done;
-      cntPendingComplaintReview = pendingComplaintReview;
-      cntUnderRevision = underRevision;
-      cntSuccess = success;
-      cntFailed = failed;
     });
   }
 
   @override
   void initState() {
     _fetchData();
+    _fetchNotifications();
     super.initState();
   }
 
   Future<void> _fetchRepairs() async {
     _fetchData();
+    _fetchNotifications();
+  }
+
+  Future<void> _fetchNotifications() async {
+    try {
+      var response = await AppAPI.get("/student/notifications");
+      Map<String, dynamic> json = jsonDecode(response.body);
+      if (json['isError'] == true) return;
+      final result = StudentNotificationResponse.fromJson(json);
+      if (mounted) {
+        setState(() {
+          _notifications = result.items;
+          _unreadCaseCount = result.unreadCaseCount;
+        });
+      }
+    } catch (_) {
+      // ดึงแจ้งเตือนไม่ได้ก็ไม่เป็นไร กระดิ่งแค่ไม่ขึ้นตัวเลข หน้าโฮมยังใช้งานได้ตามปกติ
+    }
+  }
+
+  // กดกระดิ่ง → แผ่นล่างรายการแจ้งเตือน กดรายการ → ไปหน้ารายละเอียดเคสนั้น (หน้านั้นเรียก mark_seen เอง
+  // แล้วกลับมาโหลดใหม่ จุดแดง/ตัวเลขจึงลดลงพร้อมกัน)
+  Future<void> _openNotifications() async {
+    await _fetchNotifications();
+    if (!mounted) return;
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (sheetContext) => NotificationSheet(
+        items: _notifications,
+        onItemTap: (item) async {
+          Navigator.pop(sheetContext);
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => CaseStatusScreen(
+                requestId: item.requestId,
+                focusStepCode: item.stepCode,
+                focusEventDate: item.eventDate,
+              ),
+            ),
+          );
+          _fetchRepairs();
+        },
+        onMarkAllSeen: () async {
+          Navigator.pop(sheetContext);
+          await AppAPI.post('/repair_request/mark_all_seen', {});
+          _fetchRepairs();
+        },
+      ),
+    );
   }
 
   @override
@@ -122,8 +208,11 @@ class _HomeScreenState extends State<HomeScreen> {
                         children: [
                           _buildStatsRow(textTheme),
                           const SizedBox(height: 24),
-                          _buildSectionHeader(textTheme),
-                          const SizedBox(height: 12),
+                          // โหมดแบ่งส่วน (ยังไม่เลือกหัวข้อ) แต่ละส่วนมีหัวข้อของตัวเอง จึงไม่ใช้หัวข้อรวมนี้ซ้ำ
+                          if (_activeMain != null) ...[
+                            _buildSectionHeader(textTheme),
+                            const SizedBox(height: 12),
+                          ],
                           _buildBody(),
                         ],
                       ),
@@ -172,44 +261,160 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_filteredRepairs.isEmpty) {
       return _buildEmptyState();
     }
+    // ยังไม่เลือกหัวข้อใหญ่ → แบ่งเป็นส่วนมีหัวข้อกำกับ (นัดหมายวันนี้ / เกินนัดหมาย / ผลในการแจ้งซ่อม / ผลคำร้องอุทธรณ์ /
+    // งานซ่อมปัจจุบัน); เลือกหัวข้อใหญ่แล้ว → รายการกรองเดิมพร้อมหัวข้อย่อย
+    if (_activeMain == null) {
+      return _buildSectionedList();
+    }
     return RepairInfo(repairrequestModelStore: _filteredRepairs, onReturn: _fetchData);
   }
 
-  // ── Stats row ── เดิมเป็นกริด 3+2 คอลัมน์ตายตัว พอเพิ่มสถานะ 7 ("รอตรวจสอบคำร้อง") เป็นใบที่ 6
-  // จะล้นเป็นแถวที่ 3 ดูรก เปลี่ยนเป็นแถบเลื่อนแนวนอนแทน รองรับจำนวนสถานะที่เพิ่มได้เรื่อยๆ ไม่ต้องคอย
-  // จัดกริดใหม่ทุกครั้งที่มีสถานะเพิ่ม
-  Widget _buildStatsRow(TextTheme textTheme) {
-    final cards = [
-      (filterKey: 'รอตรวจสอบ', count: cntPending, label: 'รอตรวจสอบ', color: const Color(0xFFF59E0B), statusId: 1),
-      (filterKey: 'กำลังซ่อม', count: cntWorking, label: 'กำลังซ่อม', color: kNavyMid, statusId: 2),
-      (filterKey: 'เสร็จแล้ว', count: cntDone, label: 'เสร็จแล้ว', color: const Color(0xFF16A34A), statusId: 3),
-      (filterKey: 'รอตรวจสอบคำร้อง', count: cntPendingComplaintReview, label: 'รอตรวจสอบคำร้อง', color: kAmber, statusId: 7),
-      (filterKey: 'รอแก้ไข', count: cntUnderRevision, label: 'รอแก้ไข', color: kAmberDark, statusId: 5),
-      (filterKey: 'สำเร็จ', count: cntSuccess, label: 'สำเร็จ', color: kGreenDark, statusId: 6),
-      (filterKey: 'ซ่อมไม่สำเร็จ', count: cntFailed, label: 'ซ่อมไม่สำเร็จ', color: kRsError, statusId: 8),
+  // แบ่งส่วนบนหน้าโฮม: เคสหนึ่งขึ้นส่วนเดียวตามลำดับความสำคัญ (ไล่ตามลำดับ take ด้านล่าง) ส่วนที่ไม่มีเคสไม่แสดงหัวข้อ
+  // "ผลในการแจ้งซ่อม"/"ผลคำร้องอุทธรณ์" ใช้เฉพาะเคสที่ยังไม่ได้เปิดดู (hasUnread) — เปิดดูแล้วเคสย้ายลง "งานซ่อมปัจจุบัน"
+  // ทันที ไม่ค้างโชว์ซ้ำ เพราะนักศึกษารับทราบแล้ว
+  Widget _buildSectionedList() {
+    final items = _filteredRepairs;
+    final assigned = <RepairRequestModel>{};
+
+    List<RepairRequestModel> take(bool Function(RepairRequestModel) test) {
+      final picked = items.where((r) => !assigned.contains(r) && test(r)).toList();
+      assigned.addAll(picked);
+      return picked;
+    }
+
+    bool isDecision(RepairRequestModel r, List<String> steps) =>
+        r.hasUnread && r.isDecisionRecent && steps.contains(r.lastDecisionStep);
+
+    final dueToday = take((r) => r.isDueToday);
+    final overdue = take((r) => r.isOverdue);
+    final decisions = take((r) => isDecision(r, const ['approved', 'cancelled']));
+    final appeals = take((r) => isDecision(r, const ['complaint_approved', 'complaint_rejected']));
+    final rest = items.where((r) => !assigned.contains(r)).toList();
+
+    (String, Color)? decisionNote(RepairRequestModel r) => switch (r.lastDecisionStep) {
+          'approved' => ('✓ เจ้าหน้าที่อนุมัติคำร้องแล้ว', kStatusColors[6]!),
+          'cancelled' => ('✕ เจ้าหน้าที่ปฏิเสธคำร้อง · เปิดดูเหตุผล', kStatusColors[4]!),
+          'complaint_approved' => ('✓ อนุมัติคำร้อง กำลังแก้ไขงานซ่อม', kStatusColors[7]!),
+          'complaint_rejected' => ('✕ ปฏิเสธคำร้อง · เปิดดูเหตุผล', kStatusColors[7]!),
+          _ => null,
+        };
+
+    final sections = [
+      (title: 'นัดหมายวันนี้', icon: Icons.event_available, color: kStatusColors[2]!, items: dueToday,
+          note: (RepairRequestModel r) => ('ช่างมาวันนี้ เตรียมเปิดห้องให้ช่าง', kAmberDark)),
+      (title: 'เกินนัดหมาย', icon: Icons.schedule, color: kStatusColors[8]!, items: overdue,
+          note: (RepairRequestModel r) => ('เลยช่วงเวลานัดหมายแล้ว', kStatusColors[8]!)),
+      (title: 'ผลในการแจ้งซ่อม', icon: Icons.notifications_active, color: kStatusColors[6]!, items: decisions, note: decisionNote),
+      (title: 'ผลคำร้องอุทธรณ์', icon: Icons.edit_note, color: kStatusColors[7]!, items: appeals, note: decisionNote),
+      (title: 'งานซ่อมปัจจุบัน', icon: Icons.build_circle_outlined, color: kGray500, items: rest,
+          note: (RepairRequestModel r) => null),
     ];
 
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          for (int i = 0; i < cards.length; i++) ...[
-            if (i > 0) const SizedBox(width: 10),
-            SizedBox(
-              width: 104,
-              child: StatusCard(
-                filterKey: cards[i].filterKey,
-                count: cards[i].count,
-                label: cards[i].label,
-                color: cards[i].color,
-                isActive: activeStatusId == cards[i].statusId,
-                onTap: () => setState(() {
-                  activeStatusId = activeStatusId == cards[i].statusId ? null : cards[i].statusId;
-                }),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final section in sections)
+          if (section.items.isNotEmpty) ...[
+            Padding(
+              padding: const EdgeInsets.only(top: 6, bottom: 10),
+              child: Row(
+                children: [
+                  Icon(section.icon, size: 19, color: kNavy),
+                  const SizedBox(width: 7),
+                  Text(section.title, style: GoogleFonts.sarabun(fontSize: 15, fontWeight: FontWeight.w800, color: kNavy)),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 1),
+                    decoration: BoxDecoration(color: section.color, borderRadius: BorderRadius.circular(999)),
+                    child: Text('${section.items.length}',
+                        style: GoogleFonts.sarabun(fontSize: 11.5, fontWeight: FontWeight.w700, color: Colors.white)),
+                  ),
+                ],
               ),
             ),
+            for (final item in section.items)
+              RepairInfoCard(
+                item: item,
+                onReturn: _fetchData,
+                note: section.note(item)?.$1,
+                noteColor: section.note(item)?.$2,
+              ),
+            const SizedBox(height: 10),
           ],
+      ],
+    );
+  }
+
+  // ── หัวข้อใหญ่ 4 กลุ่ม (กริด 2x2) ── เดิมเป็นแถบเลื่อนปุ่มสถานะ 7 ใบที่ดูสับสน ตอนนี้ใช้ StatusCard เดิม
+  // ที่ปรับให้รองรับจุดแดง + หัวข้อย่อยของกลุ่มที่เลือกอยู่ใต้กริด
+  Widget _buildStatsRow(TextTheme textTheme) {
+    Widget groupCard(_MainGroup g) {
+      return StatusCard(
+        filterKey: g.key,
+        count: _countIn(g),
+        label: g.label,
+        color: kStatusColors[g.colorStatusId]!,
+        isActive: _activeMain == g.key,
+        hasUnread: repairrequestModelStore.any((r) => _isVisible(r) && _inGroup(r, g) && r.hasUnread),
+        onTap: () => setState(() {
+          _activeMain = _activeMain == g.key ? null : g.key;
+          _activeSub = _kSubAll;
+        }),
+      );
+    }
+
+    final activeGroup = _activeMain == null ? null : _kMainGroups.firstWhere((g) => g.key == _activeMain);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (int row = 0; row < _kMainGroups.length; row += 2) ...[
+          if (row > 0) const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(child: groupCard(_kMainGroups[row])),
+              const SizedBox(width: 10),
+              Expanded(child: groupCard(_kMainGroups[row + 1])),
+            ],
+          ),
         ],
+        if (activeGroup != null && activeGroup.subs.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final sub in activeGroup.subs) _buildSubChip(sub, _countIn(activeGroup, sub: sub)),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
+  // จำนวนเคสที่มองเห็นในหัวข้อใหญ่ (ตัดงานปิดเก่าแล้ว) และกรองตามหัวข้อย่อยถ้าระบุ
+  int _countIn(_MainGroup g, {String sub = _kSubAll}) =>
+      repairrequestModelStore.where((r) => _isVisible(r) && _inGroup(r, g) && _matchesSub(r, sub)).length;
+
+  Widget _buildSubChip(String label, int count) {
+    final isActive = _activeSub == label;
+    return GestureDetector(
+      onTap: () => setState(() => _activeSub = label),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: isActive ? kNavy : Colors.white,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: isActive ? kNavy : kGray200, width: 1.5),
+        ),
+        child: Text(
+          '$label $count',
+          style: GoogleFonts.sarabun(
+            fontSize: 12.5,
+            fontWeight: FontWeight.w600,
+            color: isActive ? Colors.white : kGray500,
+          ),
+        ),
       ),
     );
   }
@@ -279,7 +484,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(width: 8),
                 GestureDetector(
-                  onTap: () {},
+                  onTap: _openNotifications,
                   child: Container(
                     width: 42,
                     height: 42,
@@ -297,19 +502,27 @@ class _HomeScreenState extends State<HomeScreen> {
                             size: 22,
                           ),
                         ),
-                        Positioned(
-                          top: 8,
-                          right: 8,
-                          child: Container(
-                            width: 9,
-                            height: 9,
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFEF4444),
-                              shape: BoxShape.circle,
-                              border: Border.all(color: kGoldMid, width: 2),
+                        // ตัวเลข = จำนวนเคสที่มีอัปเดตยังไม่เปิดดู (เดิมเป็นจุดแดงตกแต่งที่โชว์ตลอด)
+                        if (_unreadCaseCount > 0)
+                          Positioned(
+                            top: -4,
+                            right: -4,
+                            child: Container(
+                              constraints: const BoxConstraints(minWidth: 18),
+                              height: 18,
+                              padding: const EdgeInsets.symmetric(horizontal: 4),
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFE11D48),
+                                borderRadius: BorderRadius.circular(9),
+                                border: Border.all(color: kGoldMid, width: 2),
+                              ),
+                              child: Text(
+                                _unreadCaseCount > 99 ? '99+' : '$_unreadCaseCount',
+                                style: GoogleFonts.sarabun(fontSize: 10.5, fontWeight: FontWeight.w700, color: Colors.white, height: 1.1),
+                              ),
                             ),
                           ),
-                        ),
                       ],
                     ),
                   ),

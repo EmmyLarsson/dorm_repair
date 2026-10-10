@@ -114,6 +114,7 @@ module.exports = {
 
     // 1 คำร้อง : 1 การประเมิน (บังคับด้วย UNIQUE KEY uq_evaluation_request)
     // ถ้าเคยประเมินไว้แล้วให้เรียก updateEvaluation แทน (แก้ไขในที่) ไม่ใช่เรียกซ้ำ
+    // rating เป็น null ได้ = เคส "ซ่อมไม่สำเร็จ" (8) ที่ไม่มีการให้ดาว เหลือแค่ข้อความ/รูป (ตรวจกติกาตามสถานะที่ route แล้ว)
     createEvaluation: async (requestId, rating, feedback, photoUrls) => {
         let conn;
         let result;
@@ -141,7 +142,9 @@ module.exports = {
             );
             await notification.createNotification(
                 conn, requestId, 'evaluated',
-                `${contactRows[0].contact_name} ประเมินผลงานซ่อมแล้ว (${rating} ดาว)`
+                rating === null
+                    ? `${contactRows[0].contact_name} แจ้งเหตุผลที่ไม่ยอมรับผลการซ่อมแล้ว`
+                    : `${contactRows[0].contact_name} ประเมินผลงานซ่อมแล้ว (${rating} ดาว)`
             );
 
             await conn.commit();

@@ -18,4 +18,6 @@ module.exports = {
     AUTO_CLOSE_AFTER_DAYS: autoCloseDays,
     // นักศึกษากดเร่งงานซ้ำได้หลังผ่านกี่ชั่วโมง (กันสแปมแจ้งเตือนเจ้าหน้าที่)
     RUSH_COOLDOWN_HOURS: readIntEnv('RUSH_COOLDOWN_HOURS', 24, 1, 168),
+    // งานที่ปิดแล้ว (สำเร็จ/ไม่สำเร็จ/ยกเลิก) แสดงในหน้าโฮมนักศึกษาแค่กี่วันหลังปิด เก่ากว่านั้นดูที่หน้าประวัติ
+    RECENT_CLOSED_DAYS: readIntEnv('RECENT_CLOSED_DAYS', 2, 1, 30),
 };

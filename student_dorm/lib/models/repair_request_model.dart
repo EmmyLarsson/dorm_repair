@@ -8,6 +8,15 @@ class RepairRequestModel {
   int statusId = 0;
   String statusName = "";
   String createdAt = "";
+  // ธงทั้งหมดคำนวณที่ backend (เวลา server) แอปแค่แสดง — ค่า null จาก SQL (เคสที่ยังไม่มีวันนัด) ถือเป็น false
+  bool hasUnread;
+  bool isDueToday;
+  bool isOverdue;
+  bool isRecentlyClosed;
+  // ผลล่าสุดที่เจ้าหน้าที่ตัดสินกับเคส: approved (อนุมัติคำร้อง) / cancelled (ปฏิเสธคำร้อง) / complaint_approved /
+  // complaint_rejected (ผลอุทธรณ์) และอยู่ในช่วงเวลา "ล่าสุด" ไหม (backend ตัดสินด้วยเวลา server)
+  String? lastDecisionStep;
+  bool isDecisionRecent;
 
   RepairRequestModel({
     required this.requestId,
@@ -17,6 +26,12 @@ class RepairRequestModel {
     required this.statusId,
     required this.statusName,
     required this.createdAt,
+    this.hasUnread = false,
+    this.isDueToday = false,
+    this.isOverdue = false,
+    this.isRecentlyClosed = false,
+    this.lastDecisionStep,
+    this.isDecisionRecent = false,
   });
 
   DateTime getRepairRequestDateTime() {
@@ -49,8 +64,17 @@ class RepairRequestModel {
       statusId: json['progress_status_id'] as int? ?? 1,
       statusName: json['progress_status_name'] as String? ?? "รอตรวจสอบ",
       createdAt: json['report_date'] as String,
+      hasUnread: _flag(json['has_unread']),
+      isDueToday: _flag(json['is_due_today']),
+      isOverdue: _flag(json['is_overdue']),
+      isRecentlyClosed: _flag(json['is_recently_closed']),
+      lastDecisionStep: json['last_decision_step'] as String?,
+      isDecisionRecent: _flag(json['is_decision_recent']),
     );
   }
+
+  // MariaDB ส่ง boolean เป็น 0/1 (หรือ null ถ้าไม่มีวันนัด) — รับให้ครบทุกแบบกัน type error
+  static bool _flag(dynamic value) => value == true || value == 1 || value == '1';
 }
 
 

@@ -3,12 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { AppAPI } from '../utils/appApi';
 import { appointmentToastLabel } from '../utils/appointmentLabel';
 import { RepairRequestModel } from '../models/repairRequestModel';
+import { EQUIPMENT_STATUS_BADGE_CLASS, InventoryModel } from '../models/inventoryModel';
+import { markCaseNotificationsRead } from '../utils/caseNotification';
 import StatusCard from '../components/StatusCard';
 import RepairCard from '../components/RepairCard';
 import RepairDetailModal from '../components/RepairDetailModal';
 import RejectReasonModal from '../components/RejectReasonModal';
-
-const PAGE_SIZE = 6;
 
 function mapRepairRequestRow(row) {
   const model = RepairRequestModel.fromJson(row);
@@ -30,17 +30,48 @@ function mapRepairRequestRow(row) {
     technicianName: model.technicianName,
     appointmentDate: model.appointmentDate,
     appointmentDateLabel: model.getAppointmentDateLabel(),
+    createdAt: model.createdAt,
+    rushedAt: model.rushedAt,
+    rushCount: model.rushCount,
+    rushReasonName: model.rushReasonName,
+    rushReasonNote: model.rushReasonNote,
+    isRushUrgent: model.isRushUrgent,
+    complaintCount: model.complaintCount,
+    appealFiledAt: model.appealFiledAt,
+    appealReasonName: model.appealReasonName,
+    studentUnreadCount: model.studentUnreadCount,
+    unreadEventTypes: model.unreadEventTypes,
   };
 }
 
+// ส่วน "งานซ่อมที่ต้องจัดการ" โชว์สูงสุดกี่ใบต่อกลุ่ม (กลุ่มขอเร่งงานโชว์ทั้งหมดเสมอ เพราะสำคัญที่สุด) —
+// ที่เหลือกด "ดูอีก" ไปหน้าจัดการงานซ่อม; 3 ใบ = 1 แถวเต็มของกริด 3 คอลัมน์บนจอเดสก์ท็อป
+const TODO_PREVIEW_LIMIT = 3;
+
+// ตารางแจ้งเตือนสต๊อกโชว์สูงสุดกี่รายการ (ที่เหลือกด "ดูทั้งหมด" ไปหน้าครุภัณฑ์) — เรียงหมดคงคลังก่อน แล้วเหลือน้อยสุดก่อน
+const INVENTORY_PREVIEW_LIMIT = 5;
+
+// ค่าเวลาเก่าสุดก่อน (รอนานสุดอยู่บน) — เคสที่ไม่มีเวลาไปท้ายสุด
+function byOldest(getTime) {
+  return (a, b) => (getTime(a) ?? '9999').localeCompare(getTime(b) ?? '9999');
+}
+
 async function getHomeDashboard() {
-  const [repairsResponse, summaryResponse] = await Promise.all([
+  const [repairsResponse, summaryResponse, equipmentResponse] = await Promise.all([
     AppAPI.get("/repair_request/get_all"),
     AppAPI.get("/repair_request/get_summary"),
+    AppAPI.get("/equipment/get_all"),
   ]);
 
   const repairsJson = await repairsResponse.json();
   const summaryJson = await summaryResponse.json();
+  const equipmentJson = await equipmentResponse.json();
+
+  // แจ้งเตือนสต๊อก = ครุภัณฑ์ที่ "ใกล้จะหมด" หรือ "หมดคงคลัง" ตามเกณฑ์เดียวกับหน้าครุภัณฑ์ (InventoryModel.status)
+  const inventoryAlerts = (Array.isArray(equipmentJson.data) ? equipmentJson.data : [])
+    .map(InventoryModel.fromJson)
+    .filter((equipment) => equipment.status !== 'stock')
+    .sort((a, b) => (a.status === b.status ? a.quantity - b.quantity : a.status === 'out' ? -1 : 1));
 
   const repairs = (Array.isArray(repairsJson.data) ? repairsJson.data : []).map(mapRepairRequestRow);
 
@@ -79,7 +110,7 @@ async function getHomeDashboard() {
   return {
     repairSummary,
     repairs,
-    inventoryAlerts: [],
+    inventoryAlerts,
   };
 }
 
@@ -121,9 +152,6 @@ function HomePage() {
   const [dashboard, setDashboard] =
     useState(initialDashboard);
 
-  const [currentPage, setCurrentPage] =
-    useState(1);
-
   const [currentTime, setCurrentTime] =
     useState(new Date());
 
@@ -138,6 +166,11 @@ function HomePage() {
 
   const [rejectingRepair, setRejectingRepair] =
     useState(null);
+
+  // เปิด modal "ดูรายละเอียด" → ล้างแจ้งเตือนของเคสนั้น (ป้าย "มีอัปเดตใหม่จากนักศึกษา" บนการ์ด)
+  useEffect(() => {
+    if (viewingRepairId) markCaseNotificationsRead(viewingRepairId);
+  }, [viewingRepairId]);
 
   /*
    ดึงข้อมูลหน้า Home จาก Server
@@ -167,9 +200,10 @@ function HomePage() {
           data.repairSummary ??
           initialDashboard.repairSummary,
 
+        // เก็บเฉพาะเคสที่เป็น "งานที่ต้องจัดการ": แจ้งใหม่ (1), อุทธรณ์รอตัดสิน (7), หรือ นศ. กดเร่งและยังไม่ถูกตอบสนอง
         repairs:
           (Array.isArray(data.repairs) ? data.repairs : [])
-            .filter((repair) => repair.statusId === 1),
+            .filter((repair) => repair.statusId === 1 || repair.statusId === 7 || Boolean(repair.rushedAt)),
 
         inventoryAlerts:
           Array.isArray(data.inventoryAlerts)
@@ -210,25 +244,32 @@ function HomePage() {
     };
   }, []);
 
-  const totalPages = Math.max(
-    1,
-    Math.ceil(
-      dashboard.repairs.length / PAGE_SIZE,
-    ),
-  );
+  // กลุ่มของ "งานซ่อมที่ต้องจัดการ" ตามลำดับความสำคัญ — ทุกกลุ่มดูจากสถานะจริงของเคส รายการจึงหายเองเมื่อเจ้าหน้าที่
+  // ตอบสนอง (อนุมัติ/ปฏิเสธ/ตัดสินคำร้อง/เลื่อนนัด/ส่งงาน) โดยไม่ต้องกด "เสร็จแล้ว"
+  const todoGroups = useMemo(() => {
+    const repairs = dashboard.repairs;
 
-  const visibleRepairs = useMemo(() => {
-    const start =
-      (currentPage - 1) * PAGE_SIZE;
+    // เร่งงาน: เร่งด่วนขึ้นก่อน แล้วเรียงรอนานสุด (เวลาที่กดเร่ง) ก่อน — เฉพาะเคสที่ยังซ่อมอยู่ (2/5)
+    const rush = repairs
+      .filter((r) => r.rushedAt && (r.statusId === 2 || r.statusId === 5))
+      .sort((a, b) => Number(b.isRushUrgent) - Number(a.isRushUrgent) || byOldest((r) => r.rushedAt)(a, b));
 
-    return dashboard.repairs.slice(
-      start,
-      start + PAGE_SIZE,
-    );
-  }, [
-    currentPage,
-    dashboard.repairs,
-  ]);
+    const appeal = repairs
+      .filter((r) => r.statusId === 7)
+      .sort(byOldest((r) => r.appealFiledAt ?? r.createdAt));
+
+    const created = repairs
+      .filter((r) => r.statusId === 1)
+      .sort(byOldest((r) => r.createdAt));
+
+    return [
+      { key: 'rush', title: 'ขอเร่งงาน', icon: 'bolt', hint: 'เร่งด่วนขึ้นก่อน เรียงรอนานสุดก่อน', badgeClass: 'bg-red-600', items: rush, limit: Infinity },
+      { key: 'appeal', title: 'คำร้องอุทธรณ์', icon: 'edit_note', hint: 'นักศึกษาไม่พอใจผลซ่อม รอตัดสินใจ', badgeClass: 'bg-violet-600', items: appeal, limit: TODO_PREVIEW_LIMIT },
+      { key: 'new', title: 'คำร้องแจ้งซ่อมใหม่', icon: 'fiber_new', hint: 'รออนุมัติหรือปฏิเสธ', badgeClass: 'bg-yellow-600', items: created, limit: TODO_PREVIEW_LIMIT },
+    ];
+  }, [dashboard.repairs]);
+
+  const todoTotal = todoGroups.reduce((sum, group) => sum + group.items.length, 0);
 
   const thaiDate =
     currentTime.toLocaleDateString('th-TH', {
@@ -350,14 +391,6 @@ function HomePage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 shadow-sm">
-          <span className="material-symbols-outlined text-blue-800">
-            notifications
-          </span>
-
-          {dashboard.inventoryAlerts.length}
-          {' '}แจ้งเตือนใหม่
-        </div>
       </section>
 
       {/* สถานะงานซ่อม */}
@@ -446,39 +479,65 @@ function HomePage() {
         </div>
       </section>
 
-      {/* รายการแจ้งซ่อม */}
+      {/* งานซ่อมที่ต้องจัดการ: ขอเร่งงาน / คำร้องอุทธรณ์ / คำร้องแจ้งซ่อมใหม่ (แทนส่วน "รายการซ่อมที่แจ้งเข้ามา" เดิม) */}
       <section>
-        <div className="mb-5">
+        <div className="mb-5 flex items-center gap-3">
           <h3 className="text-lg font-bold">
-            รายการซ่อมที่แจ้งเข้ามา
+            งานซ่อมที่ต้องจัดการ
           </h3>
+
+          {todoTotal > 0 && (
+            <span className="rounded-full bg-blue-800 px-3 py-0.5 text-xs font-bold text-white">
+              {todoTotal}
+            </span>
+          )}
         </div>
 
-        {visibleRepairs.length === 0 ? (
+        {todoTotal === 0 ? (
           <EmptyMessage
-            message="ยังไม่มีรายการแจ้งซ่อม"
+            message="ไม่มีงานซ่อมที่ต้องจัดการ"
           />
         ) : (
-          <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-            {visibleRepairs.map((repair) => (
-              <RepairCard
-                key={repair.id}
-                repair={repair}
-                onApprove={handleApprove}
-                onReject={setRejectingRepair}
-                onView={() =>
-                  setViewingRepairId(repair.id)
-                }
-              />
+          <div className="flex flex-col gap-6">
+            {todoGroups.filter((group) => group.items.length > 0).map((group) => (
+              <div key={group.key}>
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  <span className="material-symbols-outlined text-xl text-slate-700">{group.icon}</span>
+                  <h4 className="text-sm font-extrabold text-slate-800">{group.title}</h4>
+                  <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold text-white ${group.badgeClass}`}>
+                    {group.items.length}
+                  </span>
+                  <span className="text-xs text-slate-500">{group.hint}</span>
+                </div>
+
+                <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+                  {group.items.slice(0, group.limit).map((repair) => (
+                    <RepairCard
+                      key={repair.id}
+                      repair={repair}
+                      onApprove={handleApprove}
+                      onReject={setRejectingRepair}
+                      onManage={() => navigate('/moderator/repairs')}
+                      onView={() =>
+                        setViewingRepairId(repair.id)
+                      }
+                    />
+                  ))}
+                </div>
+
+                {group.items.length > group.limit && (
+                  <button
+                    type="button"
+                    onClick={() => navigate('/moderator/repairs')}
+                    className="mt-3 text-sm font-bold text-blue-800 hover:underline"
+                  >
+                    ดูอีก {group.items.length - group.limit} รายการ →
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         )}
-
-        <Pagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          onChange={setCurrentPage}
-        />
       </section>
 
       {/* แจ้งเตือนครุภัณฑ์ */}
@@ -490,8 +549,19 @@ function HomePage() {
         </div>
 
         <InventoryTable
-          items={dashboard.inventoryAlerts}
+          items={dashboard.inventoryAlerts.slice(0, INVENTORY_PREVIEW_LIMIT)}
+          onManage={() => navigate('/moderator/inventory')}
         />
+
+        {dashboard.inventoryAlerts.length > INVENTORY_PREVIEW_LIMIT && (
+          <button
+            type="button"
+            onClick={() => navigate('/moderator/inventory')}
+            className="mt-3 text-[13px] font-bold text-blue-800 hover:underline"
+          >
+            ดูทั้งหมด {dashboard.inventoryAlerts.length} รายการ →
+          </button>
+        )}
       </section>
 
       <RepairDetailModal
@@ -533,65 +603,8 @@ function HomePage() {
 
 /* Component ย่อยเก็บไว้ในไฟล์เดียวก่อน */
 
-function Pagination({
-  currentPage,
-  totalPages,
-  onChange,
-}) {
-  if (totalPages <= 1) {
-    return null;
-  }
-
-  return (
-    <div className="mt-6 flex justify-center gap-2">
-      <button
-        type="button"
-        disabled={currentPage === 1}
-        onClick={() =>
-          onChange(currentPage - 1)
-        }
-        className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white disabled:cursor-not-allowed disabled:opacity-40"
-      >
-        <span className="material-symbols-outlined">
-          chevron_left
-        </span>
-      </button>
-
-      {Array.from(
-        { length: totalPages },
-        (_, index) => index + 1,
-      ).map((page) => (
-        <button
-          type="button"
-          key={page}
-          onClick={() => onChange(page)}
-          className={`h-10 min-w-10 rounded-xl border px-3 font-bold ${
-            page === currentPage
-              ? 'border-blue-800 bg-blue-800 text-white'
-              : 'border-slate-200 bg-white text-slate-600'
-          }`}
-        >
-          {page}
-        </button>
-      ))}
-
-      <button
-        type="button"
-        disabled={currentPage === totalPages}
-        onClick={() =>
-          onChange(currentPage + 1)
-        }
-        className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white disabled:cursor-not-allowed disabled:opacity-40"
-      >
-        <span className="material-symbols-outlined">
-          chevron_right
-        </span>
-      </button>
-    </div>
-  );
-}
-
-function InventoryTable({ items }) {
+// onManage = กด "จัดการ" แล้วพาไปหน้าครุภัณฑ์ (แก้จำนวน/เกณฑ์แจ้งเตือนที่นั่น ไม่ทำฟอร์มแก้ไขซ้ำในหน้า Home)
+function InventoryTable({ items, onManage }) {
   return (
     <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-white shadow-sm">
       <table className="w-full min-w-160 border-collapse">
@@ -618,26 +631,29 @@ function InventoryTable({ items }) {
         <tbody>
           {items.map((item) => (
             <tr
-              key={item.id}
+              key={item.equipmentId}
               className="border-t border-slate-200 hover:bg-slate-50"
             >
               <td className="px-6 py-4 text-sm font-bold">
-                {item.code}
+                {item.equipmentCode}
               </td>
 
               <td className="px-6 py-4 text-sm">
-                {item.name}
+                {item.equipmentName}
               </td>
 
               <td className="px-6 py-4">
-                <span className="rounded-full bg-red-100 px-3 py-1.5 text-xs font-bold text-red-800">
-                  คงเหลือ {item.quantity} ชิ้น
+                <span className={`rounded-full px-3 py-1.5 text-xs font-bold ${EQUIPMENT_STATUS_BADGE_CLASS[item.status]}`}>
+                  {item.status === 'out'
+                    ? 'หมดคงคลัง'
+                    : `ใกล้จะหมด · เหลือ ${item.quantity} ${item.unitName}`}
                 </span>
               </td>
 
               <td className="px-6 py-4 text-right">
                 <button
                   type="button"
+                  onClick={onManage}
                   className="rounded-xl bg-blue-800 px-4 py-2 text-xs font-bold text-white hover:bg-blue-900"
                 >
                   จัดการ

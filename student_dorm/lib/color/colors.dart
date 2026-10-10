@@ -63,3 +63,16 @@ const Color kWorkingBg  = Color(0xFFDBEAFE);
 const Color kDone       = Color(0xFF166534);
 const Color kDoneBg     = Color(0xFFDCFCE7);
 const Color kCancelBg   = Color(0xFFFEE2E2);
+
+// สีสถานะงานซ่อม คีย์เป็น progress_status_id (ไม่ใช้ชื่อสถานะ เพราะชื่อจาก backend เคยไม่ตรงกับคีย์จนตกไปใช้สี default)
+// ใช้ร่วมกันทั้งแถบสีการ์ด หัวกลุ่มหน้าประวัติ และปุ่มสถานะหน้าโฮม ให้สถานะเดียวกันสีเดียวกันทุกที่
+const Map<int, Color> kStatusColors = {
+  1: Color(0xFFF59E0B), // รอตรวจสอบ
+  2: Color(0xFF3F5D9C), // อยู่ระหว่างซ่อม
+  3: Color(0xFF0D9488), // เสร็จสิ้น (รอ นศ. ยืนยัน)
+  4: Color(0xFF6B7280), // ถูกปฏิเสธ/ยกเลิก
+  5: Color(0xFFEA580C), // รอแก้ไข
+  6: Color(0xFF16A34A), // สำเร็จ
+  7: Color(0xFF7C3AED), // รอตรวจสอบคำร้อง
+  8: Color(0xFFBA1A1A), // ซ่อมไม่สำเร็จ
+};

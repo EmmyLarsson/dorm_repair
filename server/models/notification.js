@@ -92,6 +92,39 @@ module.exports = {
         }
     },
 
+    // เจ้าหน้าที่เปิดเคส → ล้างแจ้งเตือนที่ยังไม่อ่านของเคสนั้นทั้งหมดในครั้งเดียว (ป้าย "มีอัปเดตใหม่จากนักศึกษา" บนการ์ด
+    // นับจาก is_read = 0 ต่อ request_id) — read-state ใช้ร่วมกันทุกคน เจ้าหน้าที่คนหนึ่งเปิด ป้ายหายสำหรับทุกคน
+    markReadByRequest: async (requestId) => {
+        let conn;
+        let result;
+
+        try {
+            conn = await pool.getConnection();
+
+            await conn.query(
+                "UPDATE notification SET is_read = 1 WHERE request_id = ? AND is_read = 0",
+                [requestId]
+            );
+
+            result = {
+                isError: false,
+                data: "",
+                errorMessage: ""
+            };
+        } catch (error) {
+            result = {
+                isError: true,
+                data: "",
+                errorMessage: "ไม่สามารถอัปเดตสถานะการอ่านได้"
+            }
+        } finally {
+            if (conn)
+                conn.release();
+
+            return result;
+        }
+    },
+
     markAllAsRead: async () => {
         let conn;
         let result;

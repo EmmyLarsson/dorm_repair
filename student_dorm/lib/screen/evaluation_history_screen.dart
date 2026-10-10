@@ -29,6 +29,7 @@ class _EvaluationHistoryScreenState extends State<EvaluationHistoryScreen> {
   String _searchQuery = '';
   String _sortKey = 'date'; // date | rating | type
   String _dateDir = 'desc'; // desc | asc
+  String _filterKey = 'all'; // all | success | failed (เคสไม่สำเร็จ = ไม่มีดาว)
   List<EvaluationHistoryItem> _items = [];
   bool _isLoading = true;
   String? _errorMessage;
@@ -79,6 +80,8 @@ class _EvaluationHistoryScreenState extends State<EvaluationHistoryScreen> {
   List<EvaluationHistoryItem> get _filteredSorted {
     final q = _searchQuery.trim().toLowerCase();
     final list = _items.where((e) {
+      if (_filterKey == 'success' && e.isFailed) return false;
+      if (_filterKey == 'failed' && !e.isFailed) return false;
       if (q.isEmpty) return true;
       return e.caseCode.toLowerCase().contains(q) ||
           e.feedback.toLowerCase().contains(q) ||
@@ -93,8 +96,9 @@ class _EvaluationHistoryScreenState extends State<EvaluationHistoryScreen> {
         list.sort((a, b) => _dateDir == 'desc' ? byDate(b, a) : byDate(a, b));
         break;
       case 'rating':
+        // เคสไม่สำเร็จไม่มีดาว จึงนับเป็น 0 เพื่อเรียงไว้ท้ายสุด (ไม่ใช้ค่านี้แสดงผลที่ไหน)
         list.sort((a, b) {
-          final diff = b.rating.compareTo(a.rating);
+          final diff = (b.rating ?? 0).compareTo(a.rating ?? 0);
           return diff != 0 ? diff : byDate(b, a);
         });
         break;
@@ -163,7 +167,7 @@ class _EvaluationHistoryScreenState extends State<EvaluationHistoryScreen> {
   // ใช้หน้าประเมินเดิม (โหมดแก้ไข) — pop(true) เมื่อบันทึกสำเร็จ จึงดึงรายการใหม่ ไม่ให้ค้างค่าเก่า
   Future<void> _handleEdit(EvaluationHistoryItem item) async {
     final didChange = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => EvaluationScreen(requestId: item.requestId)),
+      MaterialPageRoute(builder: (_) => EvaluationScreen(requestId: item.requestId, isFailedCase: item.isFailed)),
     );
     if (didChange == true) {
       await _fetchData();
@@ -175,9 +179,12 @@ class _EvaluationHistoryScreenState extends State<EvaluationHistoryScreen> {
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text('ลบการประเมินนี้?', style: GoogleFonts.sarabun(fontSize: 18, fontWeight: FontWeight.w800)),
+        title: Text(item.isFailed ? 'ลบเหตุผลนี้?' : 'ลบการประเมินนี้?',
+            style: GoogleFonts.sarabun(fontSize: 18, fontWeight: FontWeight.w800)),
         content: Text(
-          'ลบแล้วจะสามารถประเมินใหม่ได้อีกครั้ง รูปที่แนบไว้จะถูกลบด้วย',
+          item.isFailed
+              ? 'ลบแล้วจะระบุเหตุผลใหม่ได้อีกครั้ง รูปที่แนบไว้จะถูกลบด้วย'
+              : 'ลบแล้วจะสามารถประเมินใหม่ได้อีกครั้ง รูปที่แนบไว้จะถูกลบด้วย',
           style: GoogleFonts.sarabun(fontSize: 14, color: kGray500, height: 1.6),
         ),
         actions: [
@@ -210,7 +217,7 @@ class _EvaluationHistoryScreenState extends State<EvaluationHistoryScreen> {
       return;
     }
 
-    _showToast('ลบการประเมินแล้ว');
+    _showToast(item.isFailed ? 'ลบเหตุผลแล้ว' : 'ลบการประเมินแล้ว');
     await _fetchData();
   }
 
@@ -260,6 +267,8 @@ class _EvaluationHistoryScreenState extends State<EvaluationHistoryScreen> {
             sortKey: _sortKey,
             dateDir: _dateDir,
             onChipTap: _onChipTap,
+            filterKey: _filterKey,
+            onFilterTap: (key) => setState(() => _filterKey = key),
             onBack: () => Navigator.of(context).maybePop(),
           ),
           Expanded(child: _buildBody(list)),
@@ -301,7 +310,7 @@ class _EvaluationHistoryScreenState extends State<EvaluationHistoryScreen> {
       return const _MessageState(
         icon: Icons.search_off,
         title: 'ไม่พบรายการที่ค้นหา',
-        message: 'ลองพิมพ์รหัส Case หรือคำในรีวิวใหม่อีกครั้ง',
+        message: 'ลองพิมพ์รหัส Case หรือคำในรีวิวใหม่ หรือเปลี่ยนตัวกรองด้านบน',
       );
     }
 

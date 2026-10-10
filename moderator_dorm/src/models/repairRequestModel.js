@@ -17,6 +17,27 @@ export class RepairRequestModel {
     appointmentDate,
     createdAt,
     maxComplaints,
+    rushedAt,
+    rushCount,
+    rushReasonName,
+    rushReasonNote,
+    isRushUrgent,
+    complaintCount,
+    appealFiledAt,
+    appealReasonName,
+    studentUnreadCount,
+    unreadEventTypes,
+    isDueToday,
+    isOverdue,
+    isUnscheduled,
+    isReportedToday,
+    isWaitingOverDay,
+    isStaleUnconfirmed,
+    autoCloseAt,
+    isStudentCancelled,
+    evaluationRating,
+    evaluationFeedback,
+    declineReason,
   }) {
     this.requestId = requestId;
     this.caseCode = caseCode;
@@ -39,6 +60,37 @@ export class RepairRequestModel {
     this.createdAt = createdAt;
     // จำนวนครั้งที่นักศึกษายื่นอุทธรณ์ได้ของเคสนี้ (repair_request.max_complaints) เจ้าหน้าที่ปรับรายเคสได้ 1-5
     this.maxComplaints = maxComplaints;
+    // ข้อมูลการเร่งงานของ นศ. (rushedAt มีค่า = ยังรอเจ้าหน้าที่ตอบสนอง ถูกล้างเมื่อเลื่อนนัด/ส่งงาน) เหตุผลคือของครั้งล่าสุด
+    // isRushUrgent = เหตุผลนั้นติดธงเร่งด่วน (rush_reason.is_urgent) — ใช้ทำป้ายและเรียงเคสขึ้นก่อน
+    this.rushedAt = rushedAt;
+    this.rushCount = rushCount;
+    this.rushReasonName = rushReasonName;
+    this.rushReasonNote = rushReasonNote;
+    this.isRushUrgent = isRushUrgent;
+    // คำร้องอุทธรณ์ที่รอตัดสิน (สถานะ 7): ครั้งที่เท่าไหร่ ยื่นเมื่อไหร่ เหตุผลหมวดไหน
+    this.complaintCount = complaintCount;
+    this.appealFiledAt = appealFiledAt;
+    this.appealReasonName = appealReasonName;
+    // จำนวนแจ้งเตือนที่เจ้าหน้าที่ยังไม่อ่านของเคสนี้ → ป้าย "มีอัปเดตใหม่จากนักศึกษา" บนการ์ด
+    this.studentUnreadCount = studentUnreadCount;
+    // event_type ทุกเรื่อง (ไม่ซ้ำ) ที่ยังไม่ได้อ่าน (new_request, appeal_filed, rush_requested, ...) ใช้แยกบอกทีละหัวข้อบนป้าย
+    this.unreadEventTypes = unreadEventTypes;
+    // ธงหัวข้อย่อยของหน้าจัดการงานซ่อม (backend คำนวณด้วยเวลา server): นัดหมายวันนี้ / เลยช่วงนัด / ยังไม่มีนัดหรือช่าง /
+    // แจ้งวันนี้ / แจ้งแล้วรอเกิน 1 วัน
+    this.isDueToday = isDueToday;
+    this.isOverdue = isOverdue;
+    this.isUnscheduled = isUnscheduled;
+    this.isReportedToday = isReportedToday;
+    this.isWaitingOverDay = isWaitingOverDay;
+    // ค้างยืนยัน = สถานะ 3 ที่ นศ. ยังไม่กดยอมรับ/ไม่ยอมรับเกินกำหนด (backend คำนวณ) autoCloseAt = เวลาที่ระบบจะปิดอัตโนมัติ
+    // isStudentCancelled = สถานะ 4 ที่ นศ. ยกเลิกเอง (ไม่ใช่เจ้าหน้าที่ปฏิเสธ)
+    this.isStaleUnconfirmed = isStaleUnconfirmed;
+    this.autoCloseAt = autoCloseAt;
+    this.isStudentCancelled = isStudentCancelled;
+    // feedback ของนักศึกษา: คะแนน/ข้อความประเมิน (เคสสำเร็จ) และเหตุผลที่ไม่ยอมรับผลซ่อม (เคสไม่สำเร็จ) — แสดงย่อบนการ์ด
+    this.evaluationRating = evaluationRating;
+    this.evaluationFeedback = evaluationFeedback;
+    this.declineReason = declineReason;
   }
 
   getAppointmentDateLabel() {
@@ -115,6 +167,28 @@ export class RepairRequestModel {
       appointmentDate: json.appointment_date ?? null,
       createdAt: json.report_date,
       maxComplaints: json.max_complaints ?? 2,
+      rushedAt: json.rushed_at ?? null,
+      rushCount: Number(json.rush_count) || 0,
+      rushReasonName: json.rush_reason_name ?? '',
+      rushReasonNote: json.rush_reason_note ?? '',
+      // MariaDB ส่ง boolean เป็น 0/1 (หรือ null) — แปลงเป็น boolean จริงกัน truthy ผิดพลาด
+      isRushUrgent: Boolean(Number(json.is_rush_urgent)),
+      complaintCount: Number(json.complaint_count) || 0,
+      appealFiledAt: json.appeal_filed_at ?? null,
+      appealReasonName: json.appeal_reason_name ?? '',
+      studentUnreadCount: Number(json.student_unread_count) || 0,
+      unreadEventTypes: (json.unread_event_types ?? '').split(',').filter(Boolean),
+      isDueToday: Boolean(Number(json.is_due_today)),
+      isOverdue: Boolean(Number(json.is_overdue)),
+      isUnscheduled: Boolean(Number(json.is_unscheduled)),
+      isReportedToday: Boolean(Number(json.is_reported_today)),
+      isWaitingOverDay: Boolean(Number(json.is_waiting_over_day)),
+      isStaleUnconfirmed: Boolean(Number(json.is_stale_unconfirmed)),
+      autoCloseAt: json.auto_close_at ?? null,
+      isStudentCancelled: Boolean(Number(json.is_student_cancelled)),
+      evaluationRating: json.evaluation_rating == null ? null : Number(json.evaluation_rating),
+      evaluationFeedback: json.evaluation_feedback ?? '',
+      declineReason: json.decline_reason ?? '',
     });
   }
 }

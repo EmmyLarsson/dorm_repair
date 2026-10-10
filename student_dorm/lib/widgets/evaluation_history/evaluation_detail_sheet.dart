@@ -28,7 +28,8 @@ class EvaluationDetailSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final level = _ratingLevels[item.rating];
+    // เคสไม่สำเร็จไม่มีดาว จึงไม่มีระดับดาวให้แสดง (level เป็น null → ซ่อนกรอบระดับด้านล่าง)
+    final level = item.rating == null ? null : _ratingLevels[item.rating];
 
     return Container(
       constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.88),
@@ -57,7 +58,7 @@ class EvaluationDetailSheet extends StatelessWidget {
                   height: 46,
                   decoration: BoxDecoration(color: const Color(0xFFFFF8D6), borderRadius: BorderRadius.circular(14)),
                   alignment: Alignment.center,
-                  child: const Icon(Icons.star, size: 24, color: kRsGoldText),
+                  child: Icon(item.isFailed ? Icons.rate_review : Icons.star, size: 24, color: kRsGoldText),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -69,7 +70,7 @@ class EvaluationDetailSheet extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: GoogleFonts.sarabun(fontSize: 16, fontWeight: FontWeight.w800, color: kRsOnSurface)),
                       Text(
-                        'ประเมินเมื่อ ${formatEvaluationDate(item.evaluatedAt)} เวลา ${formatEvaluationTime(item.evaluatedAt)} น.',
+                        '${item.isFailed ? 'ส่งเมื่อ' : 'ประเมินเมื่อ'} ${formatEvaluationDate(item.evaluatedAt)} เวลา ${formatEvaluationTime(item.evaluatedAt)} น.',
                         style: GoogleFonts.sarabun(fontSize: 12, color: kRsMuted),
                       ),
                     ],
@@ -87,7 +88,7 @@ class EvaluationDetailSheet extends StatelessWidget {
                       child: Row(children: [
                         const Icon(Icons.edit, size: 19, color: kGray700),
                         const SizedBox(width: 10),
-                        Text('แก้ไขการประเมิน',
+                        Text(item.isFailed ? 'แก้ไขเหตุผล' : 'แก้ไขการประเมิน',
                             style: GoogleFonts.sarabun(fontSize: 14, fontWeight: FontWeight.w600)),
                       ]),
                     ),
@@ -96,7 +97,7 @@ class EvaluationDetailSheet extends StatelessWidget {
                       child: Row(children: [
                         const Icon(Icons.delete_outline, size: 19, color: kRsError),
                         const SizedBox(width: 10),
-                        Text('ลบการประเมิน',
+                        Text(item.isFailed ? 'ลบเหตุผล' : 'ลบการประเมิน',
                             style: GoogleFonts.sarabun(
                                 fontSize: 14, fontWeight: FontWeight.w600, color: kRsError)),
                       ]),
@@ -106,7 +107,7 @@ class EvaluationDetailSheet extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 18),
-            EvaluationStars(rating: item.rating, size: 28),
+            EvaluationResult(rating: item.rating, size: 28, showScore: false),
             if (level != null) ...[
               const SizedBox(height: 10),
               Container(
@@ -129,7 +130,7 @@ class EvaluationDetailSheet extends StatelessWidget {
             ],
             const SizedBox(height: 16),
             Text(
-              item.feedback.isEmpty ? 'ไม่ได้เขียนข้อเสนอแนะ' : item.feedback,
+              item.feedback.isEmpty ? (item.isFailed ? 'ไม่ได้ระบุเหตุผล' : 'ไม่ได้เขียนข้อเสนอแนะ') : item.feedback,
               style: GoogleFonts.sarabun(
                 fontSize: 15,
                 height: 1.75,

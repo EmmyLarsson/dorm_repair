@@ -9,6 +9,7 @@ import 'package:student_dorm/models/repair_detail_model.dart' show RepairDetail,
 import 'package:student_dorm/utils/app_api.dart';
 import 'package:student_dorm/widgets/repair_detail/repair_stepper.dart';
 import 'package:student_dorm/widgets/repair_detail/repair_timeline.dart';
+import 'package:student_dorm/widgets/repair_detail/rush_dialog.dart';
 import 'package:student_dorm/widgets/repair_detail/request_detail_modal.dart';
 import 'package:student_dorm/screen/report_submit_screen.dart';
 import 'package:student_dorm/screen/evaluation_screen.dart';
@@ -64,8 +65,12 @@ class _ComplaintInfo {
    ══════════════════════════════════════════ */
 class CaseStatusScreen extends StatefulWidget {
   final int requestId;
+  // เปิดมาจากการกดแจ้งเตือน: ให้เลื่อนไปที่ขั้นนั้นในไทม์ไลน์แล้วเน้นสีสั้นๆ (ขั้นเดียวกับที่แจ้งเตือนพูดถึง จับคู่ด้วย
+  // รหัสขั้น + เวลาเหตุการณ์) — ไม่ส่งมา = เปิดหน้าตามปกติ
+  final String? focusStepCode;
+  final String? focusEventDate;
 
-  const CaseStatusScreen({super.key, required this.requestId});
+  const CaseStatusScreen({super.key, required this.requestId, this.focusStepCode, this.focusEventDate});
 
   @override
   State<CaseStatusScreen> createState() => _CaseStatusScreenState();
@@ -83,9 +88,36 @@ class _CaseStatusScreenState extends State<CaseStatusScreen> {
   List<_ComplaintInfo> _complaints = [];
   Timer? _pollTimer;
 
+  // เลื่อน+เน้นขั้นที่มาจากแจ้งเตือน ทำครั้งเดียวหลังโหลดข้อมูลครั้งแรก (poll ทุก 5 วินาทีต้องไม่เลื่อนซ้ำจนผู้ใช้เลื่อนเองไม่ได้)
+  final GlobalKey _focusKey = GlobalKey();
+  late bool _focusPending = widget.focusStepCode != null;
+  bool _highlightFocus = false;
+  Timer? _highlightTimer;
+
+  bool _isFocusStep(TimelineStep step) =>
+      widget.focusStepCode != null &&
+      step.stepCode == widget.focusStepCode &&
+      (widget.focusEventDate == null || step.eventDate == widget.focusEventDate);
+
+  void _scheduleFocus() {
+    if (!_focusPending || !_timeline.any(_isFocusStep)) return;
+    _focusPending = false;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final focusContext = _focusKey.currentContext;
+      if (!mounted || focusContext == null) return;
+      Scrollable.ensureVisible(focusContext, duration: const Duration(milliseconds: 450), alignment: 0.15, curve: Curves.easeOut);
+      setState(() => _highlightFocus = true);
+      _highlightTimer?.cancel();
+      _highlightTimer = Timer(const Duration(milliseconds: 2800), () {
+        if (mounted) setState(() => _highlightFocus = false);
+      });
+    });
+  }
+
   // ตรงกับ btnCopy.classList.add('copied') — คุมว่าไอคอน copy เปลี่ยนเป็น
   // check ชั่วคราวหรือไม่
   bool _phoneCopied = false;
+  bool _moderatorPhoneCopied = false;
   bool _isAccepting = false;
   bool _isDeclining = false;
 
@@ -102,6 +134,7 @@ class _CaseStatusScreenState extends State<CaseStatusScreen> {
   @override
   void initState() {
     super.initState();
+    _markSeen();
     _fetchData();
     // อัปเดต timeline อัตโนมัติ (เจ้าหน้าที่กด "ดูเพิ่มเติม"/อนุมัติ/ฯลฯ ฝั่ง React
     // ต้องขึ้นในหน้านี้โดยไม่ต้องให้ผู้ใช้รีเฟรชเอง)
@@ -111,7 +144,18 @@ class _CaseStatusScreenState extends State<CaseStatusScreen> {
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _highlightTimer?.cancel();
+    // เรียกอีกครั้งตอนปิดหน้า: ระหว่างที่หน้านี้เปิดอยู่ เจ้าหน้าที่อาจอัปเดตเคส (เห็นผ่าน poll 5 วิ อยู่แล้ว)
+    // ถ้าไม่ล้างตอนปิด จุดแดงจะโผล่ทั้งที่นักศึกษาเพิ่งเห็นอัปเดตนั้นไปแล้ว
+    _markSeen();
     super.dispose();
+  }
+
+  // ล้างจุดแดง "มีอัปเดตใหม่" ของเคสนี้ — ผิดพลาดแล้วไม่ต้องรบกวนผู้ใช้ (แค่จุดแดงไม่หาย รอบหน้าลองใหม่)
+  Future<void> _markSeen() async {
+    try {
+      await AppAPI.post('/repair_request/mark_seen', {'request_id': widget.requestId});
+    } catch (_) {}
   }
 
   Future<void> _fetchData({bool silent = false}) async {
@@ -180,6 +224,7 @@ class _CaseStatusScreenState extends State<CaseStatusScreen> {
         _allCompletionItems = completionItemsData;
         _complaints = complaintsData;
       });
+      _scheduleFocus();
     } catch (e) {
       if (silent) return;
       setState(() {
@@ -189,7 +234,53 @@ class _CaseStatusScreenState extends State<CaseStatusScreen> {
     }
   }
 
+  // ยอมรับผลซ่อมปิดเคสเป็น "สำเร็จ" ย้อนกลับไม่ได้ จึงถามยืนยันก่อน (รูปแบบเดียวกับป๊อปอัปยกเลิกคำร้อง)
   Future<void> _acceptCompletion() async {
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        title: Row(
+          children: [
+            const Icon(Icons.check_circle_outline, color: kGreenDark),
+            const SizedBox(width: 8),
+            Text('ยืนยันผลการซ่อม?', style: GoogleFonts.sarabun(fontSize: 17, fontWeight: FontWeight.w700, color: kNavy)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'งานซ่อมนี้จะถูกปิดเป็น "สำเร็จ" หลังจากนั้นคุณประเมินงานซ่อมต่อได้',
+              style: GoogleFonts.sarabun(fontSize: 13, color: kGray500, height: 1.5),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(color: kGreen.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(10)),
+              child: Text(
+                'ยืนยันแล้วย้อนกลับไม่ได้',
+                style: GoogleFonts.sarabun(fontSize: 12, color: kDone, fontWeight: FontWeight.w600, height: 1.5),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text('ยกเลิก', style: GoogleFonts.sarabun(fontWeight: FontWeight.w700, color: kGray500)),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: FilledButton.styleFrom(backgroundColor: kGreenDark),
+            child: Text('ยอมรับ', style: GoogleFonts.sarabun(fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
     setState(() {
       _isAccepting = true;
     });
@@ -213,65 +304,164 @@ class _CaseStatusScreenState extends State<CaseStatusScreen> {
     await _fetchData();
   }
 
-  // "ไม่ยอมรับ" ผลซ่อม — โผล่เฉพาะตอนยื่นคำร้องครบสิทธิ์แล้ว (backend ตรวจซ้ำ) เคสจะปิดเป็น "ซ่อมไม่สำเร็จ"
-  // ย้อนกลับไม่ได้ บังคับกรอกเหตุผลก่อนเสมอ (เหมือนเหตุผลตอนคืนสินค้าฝั่งอีคอมเมิร์ซ) แทนการให้ดาวประเมิน
-  // เพราะงานที่ "ไม่สำเร็จ" ไม่ควรถูกให้คะแนนความพอใจแบบเดียวกับงานที่เสร็จเรียบร้อย
-  Future<void> _declineCompletion() async {
+  // ยกเลิกคำร้องเอง (ก่อนเจ้าหน้าที่อนุมัติ) — ป๊อปอัปยืนยันกลางจอ เหตุผลไม่บังคับ ไม่เกิน 500 ตัวอักษร สำเร็จแล้วโหลดใหม่
+  // เคสจะเปลี่ยนเป็น "ถูกยกเลิก" และไทม์ไลน์ขึ้น "คุณยกเลิกคำร้องนี้"; backend ตรวจซ้ำว่ายังเป็นสถานะรอตรวจสอบอยู่จริง
+  Future<void> _cancelRequest() async {
     final reasonController = TextEditingController();
-    final String? reason = await showDialog<String>(
+    final bool? confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) {
-        String? errorText;
-        return StatefulBuilder(
-          builder: (context, setDialogState) => AlertDialog(
-            title: const Text('ไม่ยอมรับผลการซ่อม?'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'งานซ่อมนี้จะถูกปิดเป็น "ซ่อมไม่สำเร็จ" และเปลี่ยนกลับไม่ได้ กรุณาระบุเหตุผลที่ไม่ยอมรับ',
-                  style: TextStyle(fontSize: 13.5, height: 1.5),
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        title: Row(
+          children: [
+            const Icon(Icons.delete_outline, color: kRsError),
+            const SizedBox(width: 8),
+            Text('ยกเลิกคำร้องนี้?', style: GoogleFonts.sarabun(fontSize: 17, fontWeight: FontWeight.w700, color: kNavy)),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'คำร้อง #${_detail?.caseCode ?? ''} จะถูกยกเลิกและจะไม่ดำเนินการต่อ',
+                style: GoogleFonts.sarabun(fontSize: 13, color: kGray500, height: 1.5),
+              ),
+              const SizedBox(height: 12),
+              Text('เหตุผล (ไม่บังคับ)', style: GoogleFonts.sarabun(fontSize: 12, fontWeight: FontWeight.w700, color: kGray700)),
+              const SizedBox(height: 5),
+              TextField(
+                controller: reasonController,
+                maxLength: 500,
+                maxLines: 3,
+                // Sarabun เสมอ เพราะช่องนี้พิมพ์ภาษาไทย (กฎโปรเจกต์ ห้ามใช้ฟอนต์ละตินล้วน)
+                style: GoogleFonts.sarabun(fontSize: 14, color: kGray700),
+                decoration: InputDecoration(
+                  hintText: 'เช่น แก้ไขเองได้แล้ว หรือแจ้งผิดห้อง...',
+                  hintStyle: GoogleFonts.sarabun(fontSize: 13, color: kGray400),
+                  border: const OutlineInputBorder(),
                 ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: reasonController,
-                  maxLength: 500,
-                  maxLines: 3,
-                  style: GoogleFonts.sarabun(fontSize: 14, color: kText),
-                  decoration: InputDecoration(
-                    hintText: 'เช่น ซ่อมแล้วยังใช้งานไม่ได้เหมือนเดิม...',
-                    hintStyle: GoogleFonts.sarabun(fontSize: 13, color: kTextMuted),
-                    border: const OutlineInputBorder(),
-                    errorText: errorText,
-                  ),
-                  onChanged: (_) {
-                    if (errorText != null) setDialogState(() => errorText = null);
-                  },
+              ),
+              const SizedBox(height: 4),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(color: kAmber.withValues(alpha: 0.16), borderRadius: BorderRadius.circular(10)),
+                child: Text(
+                  'ยกเลิกแล้วย้อนกลับไม่ได้ ต้องแจ้งซ่อมใหม่หากยังต้องการซ่อม',
+                  style: GoogleFonts.sarabun(fontSize: 12, color: kAmberDark, fontWeight: FontWeight.w600, height: 1.5),
                 ),
-              ],
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('ยกเลิก')),
-              TextButton(
-                onPressed: () {
-                  final text = reasonController.text.trim();
-                  if (text.isEmpty) {
-                    setDialogState(() => errorText = 'กรุณาระบุเหตุผล');
-                    return;
-                  }
-                  Navigator.of(dialogContext).pop(text);
-                },
-                style: TextButton.styleFrom(foregroundColor: kRsError),
-                child: const Text('ไม่ยอมรับ'),
               ),
             ],
           ),
-        );
-      },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text('ไม่ยกเลิก', style: GoogleFonts.sarabun(fontWeight: FontWeight.w700, color: kGray500)),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: FilledButton.styleFrom(backgroundColor: kRsError),
+            child: Text('ยืนยันยกเลิก', style: GoogleFonts.sarabun(fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
     );
+    final reason = reasonController.text.trim();
     reasonController.dispose();
-    if (reason == null || !mounted) return;
+    if (confirmed != true || !mounted) return;
+
+    final response = await AppAPI.post('/repair_request/cancel_by_student', {
+      'request_id': widget.requestId,
+      'reason': reason,
+    });
+    final Map<String, dynamic> json = jsonDecode(response.body);
+
+    if (!mounted) return;
+    if (json['isError'] == true) {
+      _showToast(json['errorMessage'] as String? ?? 'ยกเลิกคำร้องไม่สำเร็จ');
+      await _fetchData(silent: true);
+      return;
+    }
+
+    _showToast('ยกเลิกคำร้องเรียบร้อยแล้ว');
+    await _fetchData(silent: true);
+  }
+
+  // เร่งการจัดการงาน — เปิดป๊อปอัปให้เลือกเหตุผลก่อน (บังคับ) แล้วส่งให้ backend ตรวจเงื่อนไขซ้ำอีกชั้น
+  // (เลยช่วงนัด/สถานะ/รอบ 24 ชม.) สำเร็จแล้วโหลดใหม่เพื่อให้ปุ่มเปลี่ยนเป็น "เร่งแล้ว" พร้อมเวลาที่กดได้อีกครั้ง
+  Future<void> _rushRequest() async {
+    final input = await showRushDialog(context);
+    if (input == null || !mounted) return;
+
+    final response = await AppAPI.post('/repair_request/rush', {
+      'request_id': widget.requestId,
+      'reason_id': input.reasonId,
+      'reason_note': input.note,
+    });
+    final Map<String, dynamic> json = jsonDecode(response.body);
+
+    if (!mounted) return;
+    if (json['isError'] == true) {
+      _showToast(json['errorMessage'] as String? ?? 'ส่งคำขอเร่งงานไม่สำเร็จ');
+      await _fetchData(silent: true);
+      return;
+    }
+
+    _showToast(json['data']['message'] as String? ?? 'ส่งคำขอเร่งงานแล้ว');
+    await _fetchData(silent: true);
+  }
+
+  // "ไม่ยอมรับ" ผลซ่อม — โผล่เฉพาะตอนยื่นคำร้องครบสิทธิ์แล้ว (backend ตรวจซ้ำ) เคสจะปิดเป็น "ซ่อมไม่สำเร็จ"
+  // ย้อนกลับไม่ได้ จึงถามยืนยันก่อน แล้วปิดเคสทันที ส่วนเหตุผล/รูปให้ส่งทีหลังในหน้าประเมินแบบไม่มีดาว (บังคับเหตุผล)
+  // เหมือนที่งานสำเร็จปิดเคสก่อนแล้วค่อยกดปุ่มประเมิน — งานที่ "ไม่สำเร็จ" ไม่ควรถูกให้คะแนนความพอใจ
+  // แบบเดียวกับงานที่เสร็จเรียบร้อย
+  Future<void> _declineCompletion() async {
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        title: Row(
+          children: [
+            const Icon(Icons.cancel_outlined, color: kRsError),
+            const SizedBox(width: 8),
+            Text('ไม่ยอมรับผลการซ่อม?', style: GoogleFonts.sarabun(fontSize: 17, fontWeight: FontWeight.w700, color: kNavy)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'งานซ่อมนี้จะถูกปิดเป็น "ซ่อมไม่สำเร็จ" หลังจากนั้นคุณระบุเหตุผลต่อได้',
+              style: GoogleFonts.sarabun(fontSize: 13, color: kGray500, height: 1.5),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(color: kAmber.withValues(alpha: 0.16), borderRadius: BorderRadius.circular(10)),
+              child: Text(
+                'ยืนยันแล้วย้อนกลับไม่ได้',
+                style: GoogleFonts.sarabun(fontSize: 12, color: kAmberDark, fontWeight: FontWeight.w600, height: 1.5),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text('ยกเลิก', style: GoogleFonts.sarabun(fontWeight: FontWeight.w700, color: kGray500)),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: FilledButton.styleFrom(backgroundColor: kRsError),
+            child: Text('ไม่ยอมรับ', style: GoogleFonts.sarabun(fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
 
     setState(() {
       _isDeclining = true;
@@ -279,7 +469,6 @@ class _CaseStatusScreenState extends State<CaseStatusScreen> {
 
     final response = await AppAPI.post('/repair_request/decline_completion', {
       'request_id': widget.requestId,
-      'reason': reason,
     });
     final Map<String, dynamic> json = jsonDecode(response.body);
 
@@ -324,9 +513,10 @@ class _CaseStatusScreenState extends State<CaseStatusScreen> {
     await _fetchData();
   }
 
-  Future<void> _openEvaluationScreen() async {
+  // isFailedCase = เคส "ซ่อมไม่สำเร็จ" (8): หน้าเดียวกับประเมินแต่ไม่มีดาว บังคับกรอกเหตุผล
+  Future<void> _openEvaluationScreen({bool isFailedCase = false}) async {
     await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => EvaluationScreen(requestId: widget.requestId)),
+      MaterialPageRoute(builder: (_) => EvaluationScreen(requestId: widget.requestId, isFailedCase: isFailedCase)),
     );
   }
 
@@ -347,6 +537,7 @@ class _CaseStatusScreenState extends State<CaseStatusScreen> {
       requestId: widget.requestId,
       photos: _photos,
       onEditPressed: _onEditPressed,
+      onCancelPressed: (_) => _cancelRequest(),
     );
   }
 
@@ -357,6 +548,16 @@ class _CaseStatusScreenState extends State<CaseStatusScreen> {
 
     Future.delayed(const Duration(milliseconds: 2200), () {
       if (mounted) setState(() => _phoneCopied = false);
+    });
+  }
+
+  Future<void> _copyModeratorPhone(String phone) async {
+    await Clipboard.setData(ClipboardData(text: phone));
+    setState(() => _moderatorPhoneCopied = true);
+    _showToast('คัดลอกเบอร์เจ้าหน้าที่แล้ว');
+
+    Future.delayed(const Duration(milliseconds: 2200), () {
+      if (mounted) setState(() => _moderatorPhoneCopied = false);
     });
   }
 
@@ -496,15 +697,13 @@ class _CaseStatusScreenState extends State<CaseStatusScreen> {
 
   // ── Main content: section label + timeline ──
   Widget _buildMainContent(RepairDetail detail, List<TimelineStep> timeline) {
-    // หา 'appointment' entry "ตัวแรก" กับ "ล่าสุด" — ตัวล่าสุดคือตัวที่ยังใช้งานจริง (อาจไม่ใช่ event
-    // ล่าสุดสุดของทั้งเคส ถ้ามี step อื่นเกิดขึ้นทีหลัง เช่น 'completed') ส่วนตัวแรกเก็บไว้โชว์เป็น
-    // ประวัติจุดเริ่มต้น การ์ดนัดหมาย "กลางๆ" ที่เหลือ (เคยถูกเลื่อน/แทนที่ไปแล้ว) จะถูกตัดออกจากรายการ
-    // ไปเลยตามที่ตกลงกันไว้ ไม่ใช่แค่ลดสไตล์เหมือนเดิม
+    // หา 'appointment' entry "ตัวแรก" ของแต่ละรอบ (ไว้แยกชื่อการ์ด "นัดหมาย" กับ "เลื่อนนัดหมาย") และ "ล่าสุด" ของทั้งเคส —
+    // ตัวล่าสุดคือตัวที่ยังใช้งานจริง (อาจไม่ใช่ event ล่าสุดสุด ถ้ามี step อื่นเกิดขึ้นทีหลัง เช่น 'completed')
+    // การ์ดนัดหมายที่เคยถูกเลื่อน/แทนที่ไปแล้วโชว์ทุกใบเป็นประวัติ เพื่อให้เห็นว่าเคยนัดและเลื่อนมากี่ครั้ง
     // แยกเป็น "รอบ": รอบ 0 = นัดหมายซ่อมครั้งแรก, รอบ 1+ = นัดหมายรอบแก้ไข (นับจำนวน complaint_approved
-    // ที่เกิดก่อนหน้านัดหมายนั้น) แต่ละรอบเก็บแค่ใบแรก (นัดหมาย) กับใบล่าสุด (เลื่อนนัด ถ้ามี) เท่านั้น
+    // ที่เกิดก่อนหน้านัดหมายนั้น)
     final Map<TimelineStep, int> appointmentRoundOf = {};
     final Map<int, TimelineStep> firstAppointmentOfRound = {};
-    final Map<int, TimelineStep> latestAppointmentOfRound = {};
     // ส่งงานหลายครั้งในรอบเดียว (เช่น กดส่งซ้ำตอนแก้ไขรายงาน) เก็บแค่ใบล่าสุดของแต่ละรอบ กันการ์ดซ้ำ
     final Map<int, TimelineStep> latestCompletedOfRound = {};
     TimelineStep? latestAppointmentStep;
@@ -518,7 +717,6 @@ class _CaseStatusScreenState extends State<CaseStatusScreen> {
       } else if (step.stepCode == 'appointment') {
         appointmentRoundOf[step] = currentRound;
         firstAppointmentOfRound.putIfAbsent(currentRound, () => step);
-        latestAppointmentOfRound[currentRound] = step;
         latestAppointmentStep = step;
       }
     }
@@ -534,9 +732,7 @@ class _CaseStatusScreenState extends State<CaseStatusScreen> {
         final round = appointmentRoundOf[step] ?? 0;
         return identical(step, latestCompletedOfRound[round]);
       }
-      if (step.stepCode != 'appointment') return true;
-      final round = appointmentRoundOf[step];
-      return identical(step, firstAppointmentOfRound[round]) || identical(step, latestAppointmentOfRound[round]);
+      return true;
     }).toList();
 
     // เรียงใหม่ → เก่า (การ์ดล่าสุดอยู่บนสุด)
@@ -589,7 +785,7 @@ class _CaseStatusScreenState extends State<CaseStatusScreen> {
   // อุทธรณ์ กับ "สำเร็จ"(6)) ──
   Widget _buildCompletionSummaryCard(RepairDetail detail) {
     final bool isAwaitingConfirmation = detail.statusId == 3 || detail.statusId == 7;
-    // 8 = ซ่อมไม่สำเร็จ (นักศึกษาไม่ยอมรับหลังยื่นคำร้องครบสิทธิ์) — ดูรายงานได้แต่ไม่มีปุ่มให้กดต่อ
+    // 8 = ซ่อมไม่สำเร็จ (นักศึกษาไม่ยอมรับหลังยื่นคำร้องครบสิทธิ์) — มีปุ่มระบุเหตุผล (หน้าประเมินแบบไม่มีดาว) เท่านั้น
     final bool isRepairFailed = detail.statusId == 8;
 
     return Container(
@@ -632,13 +828,43 @@ class _CaseStatusScreenState extends State<CaseStatusScreen> {
           Padding(
             padding: const EdgeInsets.all(14),
             child: isRepairFailed
-                ? const Text(
-                    'เคสนี้ถูกปิดแล้ว ดูเหตุผลและรายละเอียดทั้งหมดได้ในไทม์ไลน์ด้านล่าง',
-                    style: TextStyle(fontSize: 13, color: kTextMuted, height: 1.5),
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Text(
+                        'เคสนี้ถูกปิดแล้ว บอกเหตุผลที่ไม่ยอมรับเพื่อให้เจ้าหน้าที่ตรวจสอบ ดูรายละเอียดอื่นได้ในไทม์ไลน์ด้านล่าง',
+                        style: TextStyle(fontSize: 13, color: kTextMuted, height: 1.5),
+                      ),
+                      const SizedBox(height: 12),
+                      _buildSuccessActions(isFailedCase: true),
+                    ],
                   )
                 : Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      // นับถอยหลังปิดอัตโนมัติ: บอกกำหนดชัดเจนว่าถ้าเงียบจะถูกปิดเป็น "สำเร็จ" วันไหน (เฉพาะสถานะ 3 —
+                      // สถานะ 7 กำลังยื่นอุทธรณ์ ไม่ถูกปิดอัตโนมัติ)
+                      if (detail.statusId == 3 && detail.autoCloseAt != null)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                          margin: const EdgeInsets.only(bottom: 12),
+                          decoration: BoxDecoration(
+                            color: kAmber.withValues(alpha: 0.14),
+                            borderRadius: BorderRadius.circular(kRadiusMd),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.schedule, size: 18, color: kAmberDark),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'หากไม่ยืนยัน ระบบจะปิดงานเป็น "สำเร็จ" อัตโนมัติ ภายใน ${formatDateFull(detail.autoCloseAt)}',
+                                  style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: kText, height: 1.45),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       if (isAwaitingConfirmation) _buildAwaitingConfirmationActions() else _buildSuccessActions(),
                     ],
                   ),
@@ -749,19 +975,20 @@ class _CaseStatusScreenState extends State<CaseStatusScreen> {
     );
   }
 
-  Widget _buildSuccessActions() {
+  // ปุ่มเปิดหน้าประเมิน: งานสำเร็จ = "ประเมินงานซ่อม" / งานไม่สำเร็จ = "ระบุเหตุผลที่ไม่ยอมรับ" (หน้าเดียวกัน ไม่มีดาว)
+  Widget _buildSuccessActions({bool isFailedCase = false}) {
     return SizedBox(
       width: double.infinity,
       height: 46,
       child: ElevatedButton.icon(
-        onPressed: _openEvaluationScreen,
+        onPressed: () => _openEvaluationScreen(isFailedCase: isFailedCase),
         style: ElevatedButton.styleFrom(
           backgroundColor: kNavy,
           foregroundColor: Colors.white,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
         ),
         icon: const Icon(Icons.rate_review, size: 18),
-        label: const Text('ประเมินงานซ่อม'),
+        label: Text(isFailedCase ? 'ระบุเหตุผลที่ไม่ยอมรับ' : 'ประเมินงานซ่อม'),
       ),
     );
   }
@@ -786,7 +1013,7 @@ class _CaseStatusScreenState extends State<CaseStatusScreen> {
   }) {
     final visual = stepVisual(step.stepCode);
 
-    return TimelineItem(
+    final item = TimelineItem(
       isLatest: isLatest,
       isLast: isLast,
       showConnector: !isLast,
@@ -794,6 +1021,19 @@ class _CaseStatusScreenState extends State<CaseStatusScreen> {
       iconColor: visual.color,
       iconColorDark: visual.colorDark,
       child: _buildStepCard(step, detail, isLatestAppointment, appointmentRound, isRescheduleInRound),
+    );
+
+    if (!_isFocusStep(step)) return item;
+
+    // ขั้นที่มาจากแจ้งเตือน: ใส่ key ให้เลื่อนมาหาได้ และเรืองแสงสีน้ำเงินจางๆ ช่วงสั้นๆ เพื่อให้ผู้ใช้เห็นว่าคือขั้นไหน
+    return AnimatedContainer(
+      key: _focusKey,
+      duration: const Duration(milliseconds: 400),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(kRadiusLg),
+        boxShadow: _highlightFocus ? [BoxShadow(color: kBlue.withValues(alpha: 0.45), blurRadius: 18, spreadRadius: 2)] : const [],
+      ),
+      child: item,
     );
   }
 
@@ -821,6 +1061,7 @@ class _CaseStatusScreenState extends State<CaseStatusScreen> {
             requestId: widget.requestId,
             photos: _photos,
             onEditPressed: _onEditPressed,
+            onCancelPressed: (_) => _cancelRequest(),
           ),
         );
       case 'approved':
@@ -833,6 +1074,12 @@ class _CaseStatusScreenState extends State<CaseStatusScreen> {
           description: (step.detail == null || step.detail!.isEmpty)
               ? stepVisual(step.stepCode).description
               : step.detail!,
+          // มีข้อความใน step_detail = เคสที่ไม่อนุญาตเข้าห้อง ยังไม่มีการ์ดนัดหมาย → ให้เบอร์เจ้าหน้าที่ผู้ดูแลพร้อมปุ่มคัดลอก
+          // (ดึงจากฐานข้อมูลผ่าน moderator_phone เดียวกับการ์ดนัดหมาย)
+          contactLabel: (detail.moderatorName == null || detail.moderatorName!.isEmpty) ? null : detail.moderatorName,
+          contactPhone: (step.detail == null || step.detail!.isEmpty) ? null : detail.moderatorPhone,
+          onCopyContact: () => _copyModeratorPhone(detail.moderatorPhone ?? ''),
+          contactCopied: _moderatorPhoneCopied,
         );
       case 'appointment':
         // เฉพาะนัดหมายล่าสุดเท่านั้นที่ยังใช้งานจริง ถึงจะโชว์เป็นการ์ด live ดึงข้อมูลช่าง/วันนัด
@@ -854,6 +1101,13 @@ class _CaseStatusScreenState extends State<CaseStatusScreen> {
           notes: step.detail,
           onCopyPhone: () => _copyPhoneNumber(detail.technicianPhone ?? ''),
           phoneCopied: _phoneCopied,
+          canRush: detail.canRush,
+          nextRushAt: detail.nextRushAt,
+          onRush: _rushRequest,
+          moderatorName: detail.moderatorName,
+          moderatorPhone: detail.moderatorPhone,
+          onCopyModeratorPhone: () => _copyModeratorPhone(detail.moderatorPhone ?? ''),
+          moderatorPhoneCopied: _moderatorPhoneCopied,
         );
       case 'completed':
         // แสดงรายงานของ "รอบนี้" ตรงตำแหน่งที่ส่งงานเกิดขึ้นจริงในไทม์ไลน์ (แก้ off-by-one เดิมที่ใช้
@@ -934,6 +1188,12 @@ class _CaseStatusScreenState extends State<CaseStatusScreen> {
         );
       case 'cancelled':
         return CancelledCard(
+          date: formatDateShort(step.eventDate),
+          reason: step.detail,
+        );
+      case 'student_cancelled':
+        return CancelledCard(
+          title: 'คุณยกเลิกคำร้องนี้',
           date: formatDateShort(step.eventDate),
           reason: step.detail,
         );

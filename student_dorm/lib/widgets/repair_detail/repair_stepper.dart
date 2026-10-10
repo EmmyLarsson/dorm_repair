@@ -47,10 +47,12 @@ class RepairStepper extends StatelessWidget {
     final IconData leftIcon;
     final String? leftDate;
     if (isRejectedAtReview) {
-      leftLabel = 'ปฏิเสธ';
+      // สถานะ 4 ก่อนอนุมัติมี 2 ที่มา: เจ้าหน้าที่ปฏิเสธ (step 'cancelled') กับนักศึกษายกเลิกเอง (step 'student_cancelled')
+      final bool cancelledByStudent = timeline.any((s) => s.stepCode == 'student_cancelled');
+      leftLabel = cancelledByStudent ? 'ยกเลิกโดยผู้แจ้ง' : 'ปฏิเสธ';
       leftState = StepState.error;
       leftIcon = Icons.close;
-      leftDate = _latestEventDateOf('cancelled');
+      leftDate = _latestEventDateOf(cancelledByStudent ? 'student_cancelled' : 'cancelled');
     } else if (statusId == 1) {
       leftLabel = 'รอตรวจสอบ';
       leftState = StepState.waiting;
@@ -92,7 +94,9 @@ class RepairStepper extends StatelessWidget {
       midLabel = 'รอแก้ไข';
       midState = StepState.active;
       midIcon = Icons.build;
-      midDate = _latestEventDateOf('complaint_approved');
+      // โชว์วันนัดแก้ไขของรอบนี้ (เหมือนสถานะ 2 ที่โชว์วันนัดซ่อม) — ยังไม่มีนัด (เช่นไม่อนุญาตให้ช่างเข้าห้อง
+      // เจ้าหน้าที่ยังไม่ได้นัด) ถอยไปใช้วันที่เจ้าหน้าที่อนุมัติคำร้องแทน
+      midDate = detail.appointmentDate ?? _latestEventDateOf('complaint_approved');
     } else if (statusId == 3) {
       // ส่งงานครั้งแรก = เสร็จสิ้นการซ่อม / ส่งงานหลังแก้ไข = รอนักศึกษาตรวจงานที่แก้
       midLabel = revisionRound == 0 ? 'เสร็จสิ้นการซ่อม' : 'รอตรวจสอบ';

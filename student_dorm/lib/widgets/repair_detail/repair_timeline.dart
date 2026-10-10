@@ -80,6 +80,9 @@ StepVisual stepVisual(String stepCode) {
           'เจ้าหน้าที่ส่งงานซ่อมให้คุณตรวจสอบ');
     case 'cancelled':
       return const StepVisual(Icons.cancel, kRsError, kRsError, 'คำร้องแจ้งซ่อมถูกยกเลิก', '');
+    // นักศึกษายกเลิกคำร้องเอง (ก่อนเจ้าหน้าที่อนุมัติ) — แยกจาก 'cancelled' ที่เจ้าหน้าที่เป็นคนปฏิเสธ
+    case 'student_cancelled':
+      return const StepVisual(Icons.undo, kRsError, kRsError, 'คุณยกเลิกคำร้องนี้', '');
     case 'appointment_cancelled':
       return const StepVisual(Icons.event_busy, kAmber, kAmberDark, 'ยกเลิกนัดหมาย', 'รอนัดหมายอีกครั้ง');
     case 'accepted':
@@ -88,6 +91,10 @@ StepVisual stepVisual(String stepCode) {
     case 'declined':
       return const StepVisual(Icons.cancel, kRsError, kRsError, 'นักศึกษาไม่ยอมรับผลการซ่อม',
           'นักศึกษาตรวจสอบผลการซ่อมแล้วไม่ยอมรับ หลังใช้สิทธิ์ยื่นคำร้องครบแล้ว งานซ่อมนี้ปิดเป็น "ซ่อมไม่สำเร็จ"');
+    // ระบบปิดให้เองเมื่อนักศึกษาไม่ยืนยันผลภายในกำหนด — ข้อความเหตุผลละเอียด (กี่วัน) มาจาก step.detail ที่ backend ใส่ไว้
+    case 'auto_closed':
+      return const StepVisual(Icons.schedule, Color(0xFF4ADE80), kGreenDark, 'ระบบปิดงานอัตโนมัติ',
+          'ไม่ได้ยืนยันผลภายในกำหนด ระบบจึงปิดงานซ่อมนี้เป็น "สำเร็จ"');
     case 'complaint_filed':
       return const StepVisual(Icons.report_problem, kAmber, kAmberDark, 'ยื่นคำร้องแจ้งแก้ไขงานซ่อม',
           'นักศึกษาแจ้งว่ายังไม่พอใจผลการซ่อม รอเจ้าหน้าที่ตรวจสอบคำร้อง');
@@ -181,6 +188,12 @@ class SimpleTimelineCard extends StatelessWidget {
   // ถ้าใส่ onTap การ์ดจะกดได้ และมีแถว "ดูรายละเอียด" ท้ายการ์ด (สไตล์เดียวกับ RequestSubmittedCard)
   final VoidCallback? onTap;
   final String tapLabel;
+  // เบอร์ติดต่อพร้อมปุ่มคัดลอกท้ายการ์ด (ไม่ส่ง = ไม่มี) — ใช้กับการ์ด "ได้รับการอนุมัติ" ของเคสที่ไม่อนุญาตให้ช่างเข้าห้อง
+  // ที่ต้องโทรหาเจ้าหน้าที่เพื่อนัดหมายเอง (เบอร์ในข้อความ step_detail เป็นข้อความธรรมดา คัดลอกไม่สะดวก)
+  final String? contactLabel;
+  final String? contactPhone;
+  final VoidCallback? onCopyContact;
+  final bool contactCopied;
 
   const SimpleTimelineCard({
     super.key,
@@ -189,6 +202,10 @@ class SimpleTimelineCard extends StatelessWidget {
     required this.description,
     this.onTap,
     this.tapLabel = 'ดูรายละเอียด',
+    this.contactLabel,
+    this.contactPhone,
+    this.onCopyContact,
+    this.contactCopied = false,
   });
 
   @override
@@ -230,6 +247,17 @@ class SimpleTimelineCard extends StatelessWidget {
                   // สีเดียวกับรายละเอียดในการ์ด "ส่งคำร้องแจ้งซ่อมสำเร็จ" (kText) — เดิมเป็น kTextMuted จางเกินอ่านยาก
                   style: const TextStyle(fontSize: 13, height: 1.65, color: kText),
                 ),
+                if (contactPhone != null && contactPhone!.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  _ContactRow(
+                    icon: Icons.phone,
+                    label: contactLabel ?? 'เบอร์ติดต่อเจ้าหน้าที่',
+                    value: contactPhone!,
+                    valueColor: kBlue,
+                    onCopy: onCopyContact,
+                    copied: contactCopied,
+                  ),
+                ],
                 if (onTap != null)
                   Padding(
                     padding: const EdgeInsets.only(top: 12),
@@ -274,8 +302,10 @@ class SimpleTimelineCard extends StatelessWidget {
 class CancelledCard extends StatelessWidget {
   final String date;
   final String? reason;
+  // หัวการ์ด — ค่าเริ่มต้นคือกรณีเจ้าหน้าที่ปฏิเสธ/ยกเลิก; กรณีนักศึกษายกเลิกเองส่งข้อความของตัวเองมาแทน (ใช้การ์ดเดิมซ้ำ)
+  final String title;
 
-  const CancelledCard({super.key, required this.date, required this.reason});
+  const CancelledCard({super.key, required this.date, required this.reason, this.title = 'คำร้องแจ้งซ่อมถูกยกเลิก'});
 
   @override
   Widget build(BuildContext context) {
@@ -299,9 +329,9 @@ class CancelledCard extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Expanded(
-                  child: Text('คำร้องแจ้งซ่อมถูกยกเลิก',
-                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: kRsError)),
+                Expanded(
+                  child: Text(title,
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: kRsError)),
                 ),
                 Padding(
                   padding: const EdgeInsets.only(top: 2),
@@ -385,10 +415,27 @@ class AppointmentCard extends StatelessWidget {
   final VoidCallback onCopyPhone;
   final bool phoneCopied;
   final bool isRevisionRound;
+  // เร่งการจัดการงาน: backend ตัดสินว่ากดได้ไหม (canRush) และเวลาที่กดได้อีกครั้ง (nextRushAt ถ้ายังติดรอบ)
+  // มีค่าเมื่อไหร่ = เลยช่วงนัดแล้ว จึงใช้เป็นตัวบอกว่าควรโชว์แบนเนอร์ "เลยนัด" โดยไม่ต้องเทียบเวลาที่เครื่องนักศึกษาเอง
+  final bool canRush;
+  final String? nextRushAt;
+  final VoidCallback? onRush;
+  // เจ้าหน้าที่ผู้ดูแลเคส + เบอร์ (ไม่ส่งมา/ว่าง = ไม่แสดงแถวนี้) ปุ่มคัดลอกแยกจากเบอร์ช่างเพื่อให้สถานะ "คัดลอกแล้ว" ไม่ติดกัน
+  final String? moderatorName;
+  final String? moderatorPhone;
+  final VoidCallback? onCopyModeratorPhone;
+  final bool moderatorPhoneCopied;
 
   const AppointmentCard({
     super.key,
     this.isRevisionRound = false,
+    this.canRush = false,
+    this.nextRushAt,
+    this.onRush,
+    this.moderatorName,
+    this.moderatorPhone,
+    this.onCopyModeratorPhone,
+    this.moderatorPhoneCopied = false,
     required this.date,
     required this.appointmentDate,
     required this.technicianName,
@@ -467,7 +514,29 @@ class AppointmentCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (isToday)
+                if (canRush || nextRushAt != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    margin: const EdgeInsets.only(bottom: 10),
+                    decoration: BoxDecoration(
+                      color: kRsError.withValues(alpha: 0.08),
+                      border: Border.all(color: kRsError.withValues(alpha: 0.45)),
+                      borderRadius: BorderRadius.circular(kRadiusMd),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.schedule, size: 18, color: kRsError),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'เลยช่วงเวลานัดหมายแล้ว',
+                            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800, color: kText),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                else if (isToday)
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     margin: const EdgeInsets.only(bottom: 10),
@@ -504,7 +573,8 @@ class AppointmentCard extends StatelessWidget {
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('วันนัดซ่อม', style: TextStyle(fontSize: 11, color: kBlue, fontWeight: FontWeight.w600)),
+                          Text(isRevisionRound ? 'วันนัดแก้ไข' : 'วันนัดซ่อม',
+                              style: TextStyle(fontSize: 11, color: kBlue, fontWeight: FontWeight.w600)),
                           Text(formatDateFull(appointmentDate),
                               style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: kBlueDark)),
                         ],
@@ -512,7 +582,24 @@ class AppointmentCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (isAutoScheduled) ...[
+                // ช่องทางขอเลื่อนนัด: ถ้ามีเบอร์เจ้าหน้าที่ผู้ดูแลเคส (ดึงจากฐานข้อมูล) ขึ้นกับทุกการ์ดนัดหมายพร้อมปุ่มคัดลอก เพราะ
+                // นักศึกษาทุกคนอาจต้องเลื่อนนัด ไม่เฉพาะเคสที่ระบบจัดให้เอง; ถ้าไม่มีเบอร์ ใช้ข้อความเดิมเฉพาะเคสที่จัดให้อัตโนมัติ
+                if (moderatorPhone != null && moderatorPhone!.isNotEmpty) ...[
+                  const Text(
+                    'หากไม่สะดวกหรือมีเหตุจำเป็น ติดต่อเจ้าหน้าที่ได้ที่',
+                    style: TextStyle(fontSize: 12.5, color: kTextMuted, height: 1.5),
+                  ),
+                  const SizedBox(height: 8),
+                  _ContactRow(
+                    icon: Icons.phone,
+                    label: (moderatorName == null || moderatorName!.isEmpty) ? 'เจ้าหน้าที่' : moderatorName!,
+                    value: moderatorPhone!,
+                    valueColor: kBlue,
+                    onCopy: onCopyModeratorPhone,
+                    copied: moderatorPhoneCopied,
+                  ),
+                  const SizedBox(height: 12),
+                ] else if (isAutoScheduled) ...[
                   const Text(
                     'หากไม่สะดวกหรือมีเหตุจำเป็น ติดต่อเจ้าหน้าที่เพื่อขอเลื่อนนัดได้',
                     style: TextStyle(fontSize: 12.5, color: kTextMuted, height: 1.5),
@@ -596,11 +683,103 @@ class AppointmentCard extends StatelessWidget {
                     ),
                   ],
                 ),
+                if (canRush && onRush != null) ...[
+                  const SizedBox(height: 14),
+                  FilledButton.icon(
+                    onPressed: onRush,
+                    icon: const Icon(Icons.bolt, size: 18),
+                    label: const Text('เร่งการจัดการงาน', style: TextStyle(fontWeight: FontWeight.w700)),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: kAmberDark,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'ส่งแจ้งเตือนถึงเจ้าหน้าที่ กดได้วันละ 1 ครั้ง',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 11.5, color: kTextMuted),
+                  ),
+                ] else if (nextRushAt != null) ...[
+                  const SizedBox(height: 14),
+                  const FilledButton(
+                    onPressed: null,
+                    child: Text('เร่งการจัดการงานแล้ว', style: TextStyle(fontWeight: FontWeight.w700)),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'กดเร่งได้อีกครั้งวันที่ ${formatDateFull(nextRushAt)}',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 11.5, color: kTextMuted),
+                  ),
+                ],
               ],
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// แถวข้อมูลติดต่อ (ไอคอน + ป้าย + ค่า + ปุ่มคัดลอกถ้ามี) ใช้กับแถวเจ้าหน้าที่ในการ์ดนัดหมาย — หน้าตาเดียวกับแถวช่าง/เบอร์ช่างเดิม
+class _ContactRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color valueColor;
+  final VoidCallback? onCopy;
+  final bool copied;
+
+  const _ContactRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.valueColor = kText,
+    this.onCopy,
+    this.copied = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(color: kGray100, borderRadius: BorderRadius.circular(9)),
+          child: Icon(icon, size: 16, color: kTextMuted),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: TextStyle(fontSize: 11, color: kTextMuted, fontWeight: FontWeight.w500)),
+              Text(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: valueColor)),
+            ],
+          ),
+        ),
+        if (onCopy != null)
+          Material(
+            color: copied ? kGreen : kGray100,
+            borderRadius: BorderRadius.circular(10),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: onCopy,
+              child: Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: copied ? kGreen : kGray200, width: 1.5),
+                ),
+                child: Icon(copied ? Icons.check : Icons.content_copy, size: 15, color: copied ? Colors.white : kTextMuted),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

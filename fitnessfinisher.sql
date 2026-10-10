@@ -126,20 +126,25 @@ INSERT INTO `moderator` (`moderator_id`, `person_id`, `position_id`) VALUES
 CREATE TABLE IF NOT EXISTS `notification` (
   `notification_id` int(11) NOT NULL AUTO_INCREMENT,
   `request_id` int(11) DEFAULT NULL,
-  `event_type` enum('new_request','appeal_filed','accepted','declined','evaluated','rush_requested','auto_closed','student_cancelled') NOT NULL,
+  `event_type` enum('new_request','appeal_filed','accepted','declined','evaluated','rush_requested','auto_closed','student_cancelled','request_edited') NOT NULL,
   `message` varchar(255) NOT NULL,
   `is_read` tinyint(1) NOT NULL DEFAULT 0,
   `created_at` datetime DEFAULT current_timestamp(),
   PRIMARY KEY (`notification_id`),
   KEY `fk_notification_request` (`request_id`),
   CONSTRAINT `fk_notification_request` FOREIGN KEY (`request_id`) REFERENCES `repair_request` (`request_id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_thai_520_w2;
+) ENGINE=InnoDB AUTO_INCREMENT=9 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_thai_520_w2;
 
--- Dumping data for table dorm_repair.notification: ~3 rows (approximately)
+-- Dumping data for table dorm_repair.notification: ~8 rows (approximately)
 INSERT INTO `notification` (`notification_id`, `request_id`, `event_type`, `message`, `is_read`, `created_at`) VALUES
 	(1, 17, 'appeal_filed', 'สมหมาย หมายสม ยื่นคำร้องอุทธรณ์', 1, '2026-09-30 21:41:25'),
-	(2, 17, 'appeal_filed', 'สมหมาย หมายสม ยื่นคำร้องอุทธรณ์', 0, '2026-10-01 13:32:13'),
-	(3, 18, 'new_request', 'สมหญิง เก่งมาก แจ้งซ่อมใหม่', 0, '2026-10-03 17:51:45');
+	(2, 17, 'appeal_filed', 'สมหมาย หมายสม ยื่นคำร้องอุทธรณ์', 1, '2026-10-01 13:32:13'),
+	(3, 18, 'new_request', 'สมหญิง เก่งมาก แจ้งซ่อมใหม่', 1, '2026-10-03 17:51:45'),
+	(4, 15, 'evaluated', 'สมหมาย หมายสม ประเมินผลงานซ่อมแล้ว (3 ดาว)', 1, '2026-10-04 22:28:54'),
+	(5, 19, 'new_request', 'สมหมาย หมายสม แจ้งซ่อมใหม่', 1, '2026-10-06 15:03:08'),
+	(6, 20, 'new_request', 'สมหมาย หมายสม แจ้งซ่อมใหม่', 1, '2026-10-07 14:08:17'),
+	(7, 20, 'student_cancelled', 'สมหมาย หมายสม ยกเลิกคำร้องแจ้งซ่อม', 1, '2026-10-07 14:10:57'),
+	(8, 21, 'new_request', 'สมหมาย หมายสม แจ้งซ่อมใหม่', 1, '2026-10-07 14:12:16');
 
 -- Dumping structure for table dorm_repair.person
 CREATE TABLE IF NOT EXISTS `person` (
@@ -158,7 +163,7 @@ CREATE TABLE IF NOT EXISTS `person` (
 
 -- Dumping data for table dorm_repair.person: ~4 rows (approximately)
 INSERT INTO `person` (`person_id`, `person_no`, `role_id`, `firstname`, `lastname`, `phone`, `profile_image`) VALUES
-	(1, 'p00001', 1, 'สมหมาย', 'หมายสม', '095459439h', NULL),
+	(1, 'p00001', 1, 'สมหมาย', 'หมายสม', '0954594396', '/uploads/profile_photos/1791125970435-a79b694d-4330-4b87-846d-3aa938b810d1.jpg'),
 	(2, 'p00002', 2, 'สมหญิง', 'หญิงสม', '0954594890', NULL),
 	(3, 'p00003', 3, 'ซ่อมดี', 'เก่งมาก', '0801246810', NULL),
 	(12, 'p00012', 3, 'ช่องเก่ง', 'ที่สุด', '0824549596', NULL);
@@ -189,10 +194,10 @@ INSERT INTO `progress_status` (`progress_status_id`, `progress_status_name`) VAL
 	(2, 'อยู่ระหว่างซ่อม'),
 	(3, 'เสร็จสิ้น'),
 	(4, 'ถูกปฏิเสธ/ยกเลิก'),
-	(5, 'รอแก้ไข'),
+	(5, 'อยู่ระหว่างการแก้ไข'),
 	(6, 'สำเร็จ'),
-	(7, 'รอตรวจสอบคำร้อง'),
-	(8, 'ซ่อมไม่สำเร็จ');
+	(7, 'รอตรวจสอบแก้ไข'),
+	(8, 'ไม่สำเร็จ');
 
 -- Dumping structure for table dorm_repair.repair_cancellation
 CREATE TABLE IF NOT EXISTS `repair_cancellation` (
@@ -206,11 +211,12 @@ CREATE TABLE IF NOT EXISTS `repair_cancellation` (
   KEY `cancelled_by_moderator_id` (`cancelled_by_moderator_id`),
   CONSTRAINT `fk_cancel_moderator` FOREIGN KEY (`cancelled_by_moderator_id`) REFERENCES `moderator` (`moderator_id`),
   CONSTRAINT `fk_cancel_request` FOREIGN KEY (`request_id`) REFERENCES `repair_request` (`request_id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_thai_520_w2;
+) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_thai_520_w2;
 
--- Dumping data for table dorm_repair.repair_cancellation: ~0 rows (approximately)
+-- Dumping data for table dorm_repair.repair_cancellation: ~1 rows (approximately)
 INSERT INTO `repair_cancellation` (`cancellation_id`, `request_id`, `cancelled_by_moderator_id`, `cancel_reason`, `cancel_date`) VALUES
-	(5, 14, 1, 'ภาพไม่ครบ', '2026-09-03 15:02:54');
+	(5, 14, 1, 'ภาพไม่ครบ', '2026-09-03 15:02:54'),
+	(6, 20, NULL, 'ไม่เอาแล้ว', '2026-10-07 14:10:57');
 
 -- Dumping structure for table dorm_repair.repair_complaint
 CREATE TABLE IF NOT EXISTS `repair_complaint` (
@@ -222,6 +228,7 @@ CREATE TABLE IF NOT EXISTS `repair_complaint` (
   `decision` enum('pending','approved','rejected') NOT NULL DEFAULT 'pending',
   `filed_at` datetime DEFAULT current_timestamp(),
   `decided_at` datetime DEFAULT NULL,
+  `appointment_date` datetime DEFAULT NULL COMMENT 'วันนัดแก้ไขของรอบอุทธรณ์ที่อนุมัติ (NULL = อุทธรณ์ที่ไม่ถูกอนุมัติ หรือยังไม่ได้นัด)',
   `edited_at` datetime DEFAULT NULL,
   PRIMARY KEY (`complaint_id`),
   KEY `fk_complaint_request` (`request_id`),
@@ -230,10 +237,10 @@ CREATE TABLE IF NOT EXISTS `repair_complaint` (
   CONSTRAINT `fk_complaint_request` FOREIGN KEY (`request_id`) REFERENCES `repair_request` (`request_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_thai_520_w2;
 
--- Dumping data for table dorm_repair.repair_complaint: ~0 rows (approximately)
-INSERT INTO `repair_complaint` (`complaint_id`, `request_id`, `complaint_text`, `complaint_reason_id`, `allow_entry`, `decision`, `filed_at`, `decided_at`, `edited_at`) VALUES
-	(4, 17, 'แย่มาก', 1, NULL, 'rejected', '2026-09-30 21:41:25', '2026-09-30 21:43:48', NULL),
-	(5, 17, 'I love JZB Studio', 5, 1, 'approved', '2026-10-01 13:32:13', '2026-10-01 14:18:30', NULL);
+-- Dumping data for table dorm_repair.repair_complaint: ~2 rows (approximately)
+INSERT INTO `repair_complaint` (`complaint_id`, `request_id`, `complaint_text`, `complaint_reason_id`, `allow_entry`, `decision`, `filed_at`, `decided_at`, `appointment_date`, `edited_at`) VALUES
+	(4, 17, 'แย่มาก', 1, NULL, 'rejected', '2026-09-30 21:41:25', '2026-09-30 21:43:48', NULL, NULL),
+	(5, 17, 'I love JZB Studio', 5, 1, 'approved', '2026-10-01 13:32:13', '2026-10-01 14:18:30', '2026-10-02 09:00:00', NULL);
 
 -- Dumping structure for table dorm_repair.repair_complaint_photo
 CREATE TABLE IF NOT EXISTS `repair_complaint_photo` (
@@ -292,15 +299,17 @@ INSERT INTO `repair_completion_item_photo` (`completion_item_photo_id`, `complet
 CREATE TABLE IF NOT EXISTS `repair_evaluation` (
   `evaluation_id` int(11) NOT NULL AUTO_INCREMENT,
   `request_id` int(11) NOT NULL,
-  `rating` int(11) NOT NULL,
+  `rating` int(11) DEFAULT NULL COMMENT 'ดาว 1-5 (ว่าง = เคสซ่อมไม่สำเร็จ ซึ่งไม่ให้ดาว)',
   `feedback` text DEFAULT NULL,
   `evaluated_at` datetime DEFAULT current_timestamp(),
   PRIMARY KEY (`evaluation_id`),
   UNIQUE KEY `uq_evaluation_request` (`request_id`),
   CONSTRAINT `fk_evaluation_request` FOREIGN KEY (`request_id`) REFERENCES `repair_request` (`request_id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_thai_520_w2;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_thai_520_w2;
 
--- Dumping data for table dorm_repair.repair_evaluation: ~0 rows (approximately)
+-- Dumping data for table dorm_repair.repair_evaluation: ~1 rows (approximately)
+INSERT INTO `repair_evaluation` (`evaluation_id`, `request_id`, `rating`, `feedback`, `evaluated_at`) VALUES
+	(1, 15, 3, 'ok ใช้ได้', '2026-10-04 22:28:54');
 
 -- Dumping structure for table dorm_repair.repair_evaluation_photo
 CREATE TABLE IF NOT EXISTS `repair_evaluation_photo` (
@@ -311,9 +320,11 @@ CREATE TABLE IF NOT EXISTS `repair_evaluation_photo` (
   PRIMARY KEY (`evaluation_photo_id`),
   KEY `fk_evaluation_photo_evaluation` (`evaluation_id`),
   CONSTRAINT `fk_evaluation_photo_evaluation` FOREIGN KEY (`evaluation_id`) REFERENCES `repair_evaluation` (`evaluation_id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_thai_520_w2;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_thai_520_w2;
 
 -- Dumping data for table dorm_repair.repair_evaluation_photo: ~0 rows (approximately)
+INSERT INTO `repair_evaluation_photo` (`evaluation_photo_id`, `evaluation_id`, `photo_url`, `uploaded_at`) VALUES
+	(1, 1, '/uploads/repair_evaluation_photos/1791127734022-a2b62176-cc13-453d-8d3a-2de28161345a.jpeg', '2026-10-04 22:28:54');
 
 -- Dumping structure for table dorm_repair.repair_request
 CREATE TABLE IF NOT EXISTS `repair_request` (
@@ -344,18 +355,21 @@ CREATE TABLE IF NOT EXISTS `repair_request` (
   CONSTRAINT `2` FOREIGN KEY (`moderator_id`) REFERENCES `moderator` (`moderator_id`),
   CONSTRAINT `3` FOREIGN KEY (`technician_id`) REFERENCES `technician` (`technician_id`),
   CONSTRAINT `4` FOREIGN KEY (`progress_status_id`) REFERENCES `progress_status` (`progress_status_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=19 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_thai_520_w2;
+) ENGINE=InnoDB AUTO_INCREMENT=22 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_thai_520_w2;
 
--- Dumping data for table dorm_repair.repair_request: ~8 rows (approximately)
+-- Dumping data for table dorm_repair.repair_request: ~11 rows (approximately)
 INSERT INTO `repair_request` (`request_id`, `student_id`, `case_code`, `moderator_id`, `technician_id`, `progress_status_id`, `description`, `contact_phone`, `allow_entry`, `report_date`, `appointment_date`, `finish_date`, `target_room`, `contact_name`, `max_complaints`, `student_last_seen_at`, `rushed_at`) VALUES
 	(9, 1, '1100009', 1, 1, 2, 'ไฟเสีย', '080-123-4567', 1, '2026-08-10 21:55:28', '2026-08-18 09:00:00', NULL, '110912', 'สมหญิง หญิงสม', 2, '2026-10-04 10:20:34', NULL),
-	(11, 1, '1100011', 1, NULL, 2, 'ไฟเสีย', '080-123-4567', 1, '2026-08-12 21:04:35', NULL, NULL, '110912', 'สมหญิง หญิงสม', 2, '2026-10-04 10:20:34', NULL),
-	(12, 1, '1100012', 1, NULL, 2, 'น้ำรั่ว', '080-123-4567', 1, '2026-08-12 21:14:55', NULL, NULL, '110912', 'สมหญิง หญิงสม', 2, '2026-10-04 10:20:34', NULL),
+	(11, 1, '1100011', 1, NULL, 2, 'ไฟเสีย', '080-123-4567', 1, '2026-08-12 21:04:35', NULL, NULL, '110912', 'สมหญิง หญิงสม', 2, '2026-10-07 14:11:59', NULL),
+	(12, 1, '1100012', 1, NULL, 2, 'น้ำรั่ว', '080-123-4567', 1, '2026-08-12 21:14:55', NULL, NULL, '110912', 'สมหญิง หญิงสม', 2, '2026-10-07 14:11:56', NULL),
 	(13, 1, '1100013', 1, 1, 2, 'ไฟฟ้าเสีย', '080-123-4567', 1, '2026-08-13 10:35:47', '2026-08-13 13:00:00', NULL, '110912', 'สมหญิง หญิงสม', 2, '2026-10-04 10:20:34', NULL),
 	(14, 1, '1100014', NULL, NULL, 4, 'ไฟเสีย', '0954594392', 1, '2026-08-23 17:38:57', NULL, NULL, '111033', 'สมหมาย หมายสม', 2, '2026-10-04 10:20:34', NULL),
 	(15, 1, '1100015', 1, 1, 6, 'ไฟฟ้าเสียมาก', '0954594392', 1, '2026-09-02 13:59:33', '2026-09-11 09:00:00', '2026-09-15 21:54:02', '111033', 'สมหมาย หมายสม', 2, '2026-10-04 10:20:34', NULL),
-	(17, 1, '1100017', 1, 1, 5, 'ปลาหมอคางดำ', '0954594392', 0, '2026-09-23 21:25:38', '2026-10-02 09:00:00', '2026-09-24 11:46:03', '111033', 'สมหมาย หมายสม', 2, '2026-10-04 10:20:34', NULL),
-	(18, 1, '1100018', 1, NULL, 2, 'ไฟฟ้าใช้ไม่ได้', '0801455677', 1, '2026-10-03 17:51:45', '2026-10-05 09:00:00', NULL, '111035', 'สมหญิง เก่งมาก', 2, '2026-10-04 10:20:34', NULL);
+	(17, 1, '1100017', 1, 1, 5, 'ปลาหมอคางดำ', '0954594392', 0, '2026-09-23 21:25:38', '2026-09-24 15:00:00', '2026-09-24 11:46:03', '111033', 'สมหมาย หมายสม', 2, '2026-10-06 20:40:17', NULL),
+	(18, 1, '1100018', 1, NULL, 2, 'ไฟฟ้าใช้ไม่ได้', '0801455677', 1, '2026-10-03 17:51:45', '2026-10-05 09:00:00', NULL, '111035', 'สมหญิง เก่งมาก', 2, '2026-10-06 14:28:14', NULL),
+	(19, 1, '1100019', 1, 1, 2, 'เน็ตเน่า', '0954594396', 1, '2026-10-06 15:03:08', '2026-10-07 09:00:00', NULL, '111035', 'สมหมาย หมายสม', 2, '2026-10-09 11:29:45', NULL),
+	(20, 1, '1100020', NULL, NULL, 4, 'ไฟเสีย', '0954594396', 0, '2026-10-07 14:08:17', NULL, NULL, '111035', 'สมหมาย หมายสม', 2, '2026-10-07 14:12:01', NULL),
+	(21, 1, '1100021', NULL, NULL, 1, 'ประตูหลุด ลูกบิดใช้ไม่ได้', '0954594396', 0, '2026-10-07 14:12:16', NULL, NULL, '111035', 'สมหมาย หมายสม', 2, '2026-10-07 14:52:32', NULL);
 
 -- Dumping structure for table dorm_repair.repair_request_detail
 CREATE TABLE IF NOT EXISTS `repair_request_detail` (
@@ -367,9 +381,9 @@ CREATE TABLE IF NOT EXISTS `repair_request_detail` (
   KEY `repair_type_id` (`repair_type_id`),
   CONSTRAINT `1` FOREIGN KEY (`request_id`) REFERENCES `repair_request` (`request_id`) ON DELETE CASCADE,
   CONSTRAINT `2` FOREIGN KEY (`repair_type_id`) REFERENCES `repair_type` (`repair_type_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=53 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_thai_520_w2;
+) ENGINE=InnoDB AUTO_INCREMENT=57 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_thai_520_w2;
 
--- Dumping data for table dorm_repair.repair_request_detail: ~8 rows (approximately)
+-- Dumping data for table dorm_repair.repair_request_detail: ~11 rows (approximately)
 INSERT INTO `repair_request_detail` (`request_detail_id`, `request_id`, `repair_type_id`) VALUES
 	(10, 9, 1),
 	(12, 11, 1),
@@ -378,7 +392,10 @@ INSERT INTO `repair_request_detail` (`request_detail_id`, `request_id`, `repair_
 	(15, 14, 1),
 	(48, 15, 1),
 	(51, 17, 2),
-	(52, 18, 1);
+	(52, 18, 1),
+	(53, 19, 5),
+	(54, 20, 1),
+	(56, 21, 4);
 
 -- Dumping structure for table dorm_repair.repair_request_equipment
 CREATE TABLE IF NOT EXISTS `repair_request_equipment` (
@@ -406,7 +423,7 @@ CREATE TABLE IF NOT EXISTS `repair_request_photo` (
   CONSTRAINT `fk_photo_request` FOREIGN KEY (`request_id`) REFERENCES `repair_request` (`request_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB AUTO_INCREMENT=24 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_thai_520_w2;
 
--- Dumping data for table dorm_repair.repair_request_photo: ~4 rows (approximately)
+-- Dumping data for table dorm_repair.repair_request_photo: ~3 rows (approximately)
 INSERT INTO `repair_request_photo` (`photo_id`, `request_id`, `photo_url`, `uploaded_at`) VALUES
 	(16, 15, '/uploads/repair_photos/1788349209275-43cdedc5-fb3c-423e-bb22-cf90e9b45b79.jpeg', '2026-09-02 18:40:09'),
 	(17, 15, '/uploads/repair_photos/1788349209290-5ab19e3c-f1dc-4d12-bc94-78266263a9a1.jpeg', '2026-09-02 18:40:09'),
@@ -424,9 +441,9 @@ CREATE TABLE IF NOT EXISTS `repair_timeline` (
   PRIMARY KEY (`timeline_id`),
   KEY `request_id` (`request_id`),
   CONSTRAINT `fk_timeline_request` FOREIGN KEY (`request_id`) REFERENCES `repair_request` (`request_id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=77 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_thai_520_w2;
+) ENGINE=InnoDB AUTO_INCREMENT=86 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_thai_520_w2;
 
--- Dumping data for table dorm_repair.repair_timeline: ~50 rows (approximately)
+-- Dumping data for table dorm_repair.repair_timeline: ~59 rows (approximately)
 INSERT INTO `repair_timeline` (`timeline_id`, `request_id`, `step_code`, `step_detail`, `event_date`) VALUES
 	(8, 9, 'submitted', NULL, '2026-08-10 21:55:28'),
 	(9, 9, 'reviewing', NULL, '2026-08-10 22:28:59'),
@@ -477,7 +494,16 @@ INSERT INTO `repair_timeline` (`timeline_id`, `request_id`, `step_code`, `step_d
 	(73, 18, 'submitted', NULL, '2026-10-03 17:51:45'),
 	(74, 18, 'reviewing', NULL, '2026-10-03 17:54:47'),
 	(75, 18, 'approved', NULL, '2026-10-03 17:55:14'),
-	(76, 18, 'appointment', 'เจ้าหน้าที่นัดหมายวันซ่อมให้คุณแล้ว 5 ตุลาคม 2569 ช่วง 09:00 - 11:00 น.', '2026-10-03 17:55:14');
+	(76, 18, 'appointment', 'เจ้าหน้าที่นัดหมายวันซ่อมให้คุณแล้ว 5 ตุลาคม 2569 ช่วง 09:00 - 11:00 น.', '2026-10-03 17:55:14'),
+	(77, 19, 'submitted', NULL, '2026-10-06 15:03:08'),
+	(78, 19, 'reviewing', NULL, '2026-10-06 15:03:18'),
+	(79, 19, 'approved', NULL, '2026-10-06 15:03:43'),
+	(80, 19, 'appointment', 'เจ้าหน้าที่นัดหมายวันซ่อมให้คุณแล้ว 7 ตุลาคม 2569 ช่วง 09:00 - 11:00 น.', '2026-10-06 15:03:43'),
+	(81, 19, 'appointment', 'กำหนดการซ่อม 7 ตุลาคม 2569 ช่วง 09:00 - 11:00 น. (รับทราบค่ะ)', '2026-10-06 16:15:04'),
+	(82, 20, 'submitted', NULL, '2026-10-07 14:08:17'),
+	(83, 20, 'student_cancelled', 'ไม่เอาแล้ว', '2026-10-07 14:10:57'),
+	(84, 21, 'submitted', NULL, '2026-10-07 14:12:16'),
+	(85, 21, 'reviewing', NULL, '2026-10-09 21:56:31');
 
 -- Dumping structure for table dorm_repair.repair_type
 CREATE TABLE IF NOT EXISTS `repair_type` (
@@ -508,6 +534,39 @@ INSERT INTO `role` (`role_id`, `role_name`) VALUES
 	(2, 'เจ้าหน้าที่'),
 	(3, 'ช่าง');
 
+-- Dumping structure for table dorm_repair.rush_log
+CREATE TABLE IF NOT EXISTS `rush_log` (
+  `rush_log_id` int(11) NOT NULL AUTO_INCREMENT,
+  `request_id` int(11) NOT NULL,
+  `rush_reason_id` int(11) NOT NULL,
+  `reason_note` varchar(200) DEFAULT NULL COMMENT 'ข้อความที่นักศึกษาพิมพ์ (บังคับเฉพาะเหตุผล "อื่นๆ")',
+  `rushed_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`rush_log_id`),
+  KEY `idx_rush_log_request` (`request_id`),
+  KEY `idx_rush_log_reason` (`rush_reason_id`),
+  KEY `idx_rush_log_time` (`rushed_at`),
+  CONSTRAINT `fk_rush_log_reason` FOREIGN KEY (`rush_reason_id`) REFERENCES `rush_reason` (`rush_reason_id`),
+  CONSTRAINT `fk_rush_log_request` FOREIGN KEY (`request_id`) REFERENCES `repair_request` (`request_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_thai_520_w2;
+
+-- Dumping data for table dorm_repair.rush_log: ~0 rows (approximately)
+
+-- Dumping structure for table dorm_repair.rush_reason
+CREATE TABLE IF NOT EXISTS `rush_reason` (
+  `rush_reason_id` int(11) NOT NULL AUTO_INCREMENT,
+  `rush_reason_name` varchar(100) NOT NULL,
+  `is_urgent` tinyint(1) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`rush_reason_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_thai_520_w2;
+
+-- Dumping data for table dorm_repair.rush_reason: ~5 rows (approximately)
+INSERT INTO `rush_reason` (`rush_reason_id`, `rush_reason_name`, `is_urgent`) VALUES
+	(1, 'ช่างไม่มาตามนัด', 0),
+	(2, 'ช่างมาแล้วแต่ยังซ่อมไม่เสร็จ', 0),
+	(3, 'ยังไม่มีการติดต่อกลับ', 0),
+	(4, 'กระทบความปลอดภัย / การใช้ห้องพัก', 1),
+	(5, 'อื่นๆ (ระบุเพิ่ม)', 0);
+
 -- Dumping structure for table dorm_repair.specialty
 CREATE TABLE IF NOT EXISTS `specialty` (
   `specialty_id` int(11) NOT NULL AUTO_INCREMENT,
@@ -535,7 +594,7 @@ CREATE TABLE IF NOT EXISTS `student` (
 
 -- Dumping data for table dorm_repair.student: ~1 rows (approximately)
 INSERT INTO `student` (`student_id`, `person_id`, `room_number`) VALUES
-	(1, 1, '111034');
+	(1, 1, '111035');
 
 -- Dumping structure for table dorm_repair.technician
 CREATE TABLE IF NOT EXISTS `technician` (

@@ -3,7 +3,8 @@
 class EvaluationHistoryItem {
   final int requestId;
   final String caseCode;
-  final int rating;
+  // null = เคส "ซ่อมไม่สำเร็จ" ที่ไม่มีการให้ดาว (เหลือแค่เหตุผล/รูป) — ห้ามแปลงเป็น 0 เพราะจะกลายเป็นดาวเทา "0 / 5"
+  final int? rating;
   final String feedback;
   final String evaluatedAt;
   final String? finishDate;
@@ -27,7 +28,7 @@ class EvaluationHistoryItem {
       requestId: (json['request_id'] as num?)?.toInt() ?? 0,
       caseCode: json['case_code'] as String? ?? '',
       // กัน rating นอกช่วง 1-5 ทำให้แถวดาววาดผิด (backend ตรวจแล้ว แต่ UI ไม่ควรพึ่งอย่างเดียว)
-      rating: ((json['rating'] as num?)?.toInt() ?? 0).clamp(0, 5),
+      rating: (json['rating'] as num?)?.toInt().clamp(1, 5),
       feedback: json['feedback'] as String? ?? '',
       evaluatedAt: json['evaluated_at'] as String? ?? '',
       finishDate: json['finish_date'] as String?,
@@ -37,6 +38,9 @@ class EvaluationHistoryItem {
   }
 
   String get typeLabel => typeNames.isEmpty ? 'ไม่ระบุประเภทงาน' : typeNames.join(', ');
+
+  // เคสไม่สำเร็จ = ไม่มีดาว (backend ไม่รับดาวของเคสสถานะ 8) ใช้แยกการ์ด/ตัวกรอง "สำเร็จ - ไม่สำเร็จ"
+  bool get isFailed => rating == null;
 }
 
 /// 'YYYY-MM-DD HH:mm:ss' → 'DD/MM/พ.ศ.' (ว่าง/รูปแบบผิดคืน '-' แทนที่จะ throw)

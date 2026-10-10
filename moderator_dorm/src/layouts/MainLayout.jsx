@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {NavLink, Outlet, useNavigate,} from "react-router-dom";
+import { AnimatePresence, motion } from "framer-motion";
 import { AppAPI } from "../utils/appApi";
 import dormLogo from "../assets/dorm_logo.jpg";
 
@@ -7,10 +8,14 @@ import dormLogo from "../assets/dorm_logo.jpg";
 // ตามที่ตกลงกัน: คลิกแจ้งเตือน → พาไปหน้าจัดการงานซ่อม + เปิด modal นั้นพร้อมกันทันที (ไม่ใช่ไปหน้าเปล่าๆ ก่อน)
 const NOTIFICATION_TARGETS = {
   new_request: { modal: 'inspect' },
+  request_edited: { modal: 'inspect' }, // นักศึกษาแก้ไขคำร้องก่อนอนุมัติ → ดูรายละเอียดฉบับล่าสุดที่หน้าตรวจสอบ
   appeal_filed: { modal: 'manage' },
   accepted: { modal: 'review' },
   declined: { modal: 'review' },
   evaluated: { modal: 'review', tab: 'review' }, // แท็บ "ผลการประเมิน" ของ Review modal
+  rush_requested: { modal: 'manage' }, // นักศึกษากดเร่งงาน → เจ้าหน้าที่ต้องจัดการ (เลื่อนนัด/ส่งงาน) ที่หน้าจัดการ
+  auto_closed: { modal: 'review' }, // ระบบปิดงานอัตโนมัติ (นักศึกษาไม่ยืนยันภายในกำหนด) → ดูผลที่หน้าตรวจสอบ
+  student_cancelled: { modal: 'inspect' }, // นักศึกษายกเลิกคำร้องเอง (ก่อนอนุมัติ) → ดูรายละเอียดคำร้อง
 };
 
 async function getNotifications() {
@@ -53,11 +58,33 @@ function formatRelativeTime(raw) {
 
 const NOTIFICATION_ICON = {
   new_request: { icon: 'build', bg: 'bg-blue-100', color: 'text-blue-700' },
+  request_edited: { icon: 'edit', bg: 'bg-blue-100', color: 'text-blue-700' },
   appeal_filed: { icon: 'gavel', bg: 'bg-orange-100', color: 'text-orange-700' },
   accepted: { icon: 'check_circle', bg: 'bg-green-100', color: 'text-green-700' },
   declined: { icon: 'cancel', bg: 'bg-red-100', color: 'text-red-700' },
   evaluated: { icon: 'star', bg: 'bg-amber-100', color: 'text-amber-700' },
+  rush_requested: { icon: 'bolt', bg: 'bg-orange-100', color: 'text-orange-700' },
+  auto_closed: { icon: 'schedule', bg: 'bg-green-100', color: 'text-green-700' },
+  student_cancelled: { icon: 'undo', bg: 'bg-slate-200', color: 'text-slate-700' },
 };
+
+// แจ้งเตือนเร่งงานที่เหตุผลติดธงเร่งด่วน (backend ขึ้นต้นข้อความด้วย [เร่งด่วน]) — เปลี่ยนเป็นไอคอน/สีแดงให้เด่นกว่าปกติ
+// เพราะตาราง notification ไม่มีคอลัมน์ธงนี้ (ไม่แก้ schema เพิ่มเพื่อเรื่องนี้)
+const URGENT_NOTIFICATION_ICON = { icon: 'emergency', bg: 'bg-red-100', color: 'text-red-700' };
+
+// ไอคอน/สีของแจ้งเตือน 1 รายการ — ใช้ทั้งในรายการกระดิ่งและการ์ดเด้งมุมขวาล่าง ให้หน้าตาตรงกัน
+function notificationMeta(item) {
+  const isUrgent = item.event_type === 'rush_requested' && item.message?.startsWith('[เร่งด่วน]');
+
+  return (isUrgent ? URGENT_NOTIFICATION_ICON : NOTIFICATION_ICON[item.event_type]) ?? {
+    icon: 'notifications',
+    bg: 'bg-slate-100',
+    color: 'text-slate-600',
+  };
+}
+
+// การ์ดแจ้งเตือนใหม่มุมขวาล่างค้างอยู่กี่มิลลิวินาทีก่อนหายเอง (หลังจากนั้นดูต่อได้ที่ปุ่มกระดิ่ง)
+const NOTIFICATION_TOAST_MS = 6000;
 
 const menuItems = [
   {
@@ -93,12 +120,33 @@ export default function MainLayout() {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
+  // การ์ดแจ้งเตือนใหม่มุมขวาล่าง: { item: แจ้งเตือนล่าสุด, extra: จำนวนรายการใหม่อื่นที่มาพร้อมกัน } (null = ไม่แสดง)
+  const [toastInfo, setToastInfo] = useState(null);
+  // notification_id สูงสุดที่เคยเห็น — รายการที่ id มากกว่านี้คือ "ใหม่" (null = ยังไม่โหลดครั้งแรก)
+  const latestSeenIdRef = useRef(null);
 
   async function refreshNotifications() {
     const { notifications: list, unreadCount: count } = await getNotifications();
     setNotifications(list);
     setUnreadCount(count);
+
+    // เด้งการ์ดเฉพาะรายการที่เพิ่งเข้ามาหลังโหลดหน้าแล้ว (โหลดครั้งแรกแค่จดค่าไว้ ไม่เด้งเรื่องเก่าที่ค้างอยู่) และยังไม่ถูกอ่าน
+    // list เรียงใหม่สุดก่อน รายการแรกที่ผ่านเงื่อนไขจึงเป็นรายการล่าสุด
+    const newestId = list.reduce((max, n) => Math.max(max, n.notification_id), 0);
+    if (latestSeenIdRef.current !== null) {
+      const fresh = list.filter((n) => n.notification_id > latestSeenIdRef.current && !n.is_read);
+      if (fresh.length > 0) setToastInfo({ item: fresh[0], extra: fresh.length - 1 });
+    }
+    latestSeenIdRef.current = Math.max(latestSeenIdRef.current ?? 0, newestId);
   }
+
+  // การ์ดมุมขวาล่างหายเองหลัง NOTIFICATION_TOAST_MS (มีรายการใหม่เข้ามาอีกก็เริ่มนับใหม่)
+  useEffect(() => {
+    if (!toastInfo) return undefined;
+
+    const timerId = window.setTimeout(() => setToastInfo(null), NOTIFICATION_TOAST_MS);
+    return () => window.clearTimeout(timerId);
+  }, [toastInfo]);
 
   useEffect(() => {
     refreshNotifications();
@@ -230,11 +278,7 @@ export default function MainLayout() {
                       </p>
                     ) : (
                       notifications.map((item) => {
-                        const meta = NOTIFICATION_ICON[item.event_type] ?? {
-                          icon: 'notifications',
-                          bg: 'bg-slate-100',
-                          color: 'text-slate-600',
-                        };
+                        const meta = notificationMeta(item);
                         const isUnread = !item.is_read;
 
                         return (
@@ -413,6 +457,40 @@ export default function MainLayout() {
             </p>
           </div>
         </footer>
+      </div>
+
+      {/* การ์ดแจ้งเตือนล่าสุดมุมขวาล่าง: โผล่เมื่อมีเรื่องใหม่จาก นศ. แล้วหายเอง กดแล้วเปิดรายการที่ปุ่มกระดิ่ง
+          วางสูงกว่า toast สีดำของแต่ละหน้า (bottom-8) เพื่อไม่ซ้อนกัน */}
+      <div className="pointer-events-none fixed bottom-24 right-8 z-[210]">
+        <AnimatePresence>
+          {toastInfo && (
+            <motion.button
+              key={toastInfo.item.notification_id}
+              type="button"
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 16 }}
+              onClick={() => {
+                setIsNotifOpen(true);
+                setToastInfo(null);
+              }}
+              className="pointer-events-auto flex w-96 max-w-[calc(100vw-4rem)] items-start gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left shadow-xl"
+            >
+              <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${notificationMeta(toastInfo.item).bg} ${notificationMeta(toastInfo.item).color}`}>
+                <span className="material-symbols-outlined text-[18px]">{notificationMeta(toastInfo.item).icon}</span>
+              </div>
+
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-bold text-blue-700">แจ้งเตือนใหม่</p>
+                <p className="text-sm font-bold leading-snug text-slate-800">{toastInfo.item.message}</p>
+                <p className="mt-0.5 text-[11px] text-slate-400">
+                  {toastInfo.item.case_code ? `${toastInfo.item.case_code} · ` : ''}
+                  {toastInfo.extra > 0 ? `และอีก ${toastInfo.extra} รายการ · กดเพื่อดูที่กระดิ่ง` : 'กดเพื่อดูที่กระดิ่ง'}
+                </p>
+              </div>
+            </motion.button>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );

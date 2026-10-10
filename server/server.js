@@ -11,6 +11,8 @@ const repair_request = require('./models/repair_request');
 const repair_request_photo = require('./models/repair_request_photo');
 const repair_request_equipment = require('./models/repair_request_equipment');
 const progress_status = require('./models/progress_status');
+const repair_type = require('./models/repair_type');
+const rush_reason = require('./models/rush_reason');
 const technician = require('./models/technician');
 const repair_timeline = require('./models/repair_timeline');
 const personnel = require('./models/personnel');
@@ -22,6 +24,8 @@ const repair_completion_item = require('./models/repair_completion_item');
 const repair_evaluation = require('./models/repair_evaluation');
 const repair_complaint = require('./models/repair_complaint');
 const notification = require('./models/notification');
+const dashboard = require('./models/dashboard');
+const { buildReportSummary } = require('./libs/report_summary');
 const db_pool = require('./libs/db_pool');
 const { uploadRepairPhoto, uploadEquipmentPhoto, uploadProfilePhoto, uploadCompletionPhoto, uploadEvaluationPhoto, uploadComplaintPhoto } = require('./libs/upload');
 
@@ -78,8 +82,17 @@ app.get("/api/users", (req, res) => {
     res.send(JSON.stringify(response));
 });
 
-app.get("/api/user/:accountId", async (req, res) => {
-  const accountId = req.params.accountId;
+// ต้องล็อกอิน และดูได้เฉพาะบัญชีตัวเองหรือเจ้าหน้าที่ (role 2) — เดิมไม่ตรวจโทเค็นเลย ใครก็วนเลข id ดึงรหัสนักศึกษา
+// (username) กับรูปโปรไฟล์ของทุกคนได้ ซึ่งเป็นข้อมูลส่วนบุคคลตาม PDPA (ตอนนี้ไม่มี client ไหนเรียก route นี้)
+app.get("/api/user/:accountId", checkAccessToken, async (req, res) => {
+  const accountId = parseInt(req.params.accountId, 10);
+  if (!Number.isInteger(accountId) || accountId <= 0) {
+    return res.json({ isError: true, errorMessage: "รหัสบัญชีไม่ถูกต้อง" });
+  }
+  if (accountId !== req.decoded.user_id && req.decoded.role_id !== 2) {
+    return res.json({ isError: true, errorMessage: "คุณไม่มีสิทธิ์เข้าถึงข้อมูลนี้" });
+  }
+
   const response = await userAccountModel.getUserAccountById(accountId);
   res.send(JSON.stringify(response));
 });
@@ -190,6 +203,12 @@ app.get("/api/progress_status/get_all", checkAccessToken, async (req, res) => {
     res.json(response);
 });
 
+// รายการประเภทงานซ่อมจากตาราง repair_type ให้แอปใช้ชื่อตรงกับ backend (ไม่ฮาร์ดโค้ด) — ข้อมูลไม่ใช่ข้อมูลส่วนบุคคล
+app.get("/api/repair_type/get_all", checkAccessToken, async (req, res) => {
+    const response = await repair_type.getAllRepairType();
+    res.json(response);
+});
+
 // เจ้าหน้าที่เท่านั้น — ผลลัพธ์มีข้อมูลส่วนบุคคลของนักศึกษาทุกคน (ชื่อ ห้อง รูปโปรไฟล์) ตาม PDPA ต้องเห็นเฉพาะบทบาท
 // ที่จำเป็น; แอปนักศึกษาไม่ได้เรียก route นี้ (ใช้ get_all_by_user ของตัวเอง) จึงไม่กระทบ
 app.get("/api/repair_request/get_all", checkAccessToken, requireRole([2]), async (req, res) => {
@@ -197,9 +216,26 @@ app.get("/api/repair_request/get_all", checkAccessToken, requireRole([2]), async
     res.json(response);
 });
 
-app.get("/api/repair_request/get_summary", checkAccessToken, async (req, res) => {
+app.get("/api/repair_request/get_summary", checkAccessToken, requireRole([2]), async (req, res) => {
     const response = await repair_request.getRepairSummary();
     res.json(response);
+});
+
+// หน้ารายงานสรุปของเจ้าหน้าที่ — range รับแค่ 7 | 30 | all (whitelist) ค่าอื่นปฏิเสธก่อนถึง SQL ผลลัพธ์เป็นตัวเลขรวม
+// และรหัสเคส/ห้อง/ประเภท ไม่มีชื่อหรือเบอร์นักศึกษา (PDPA) ข้อผิดพลาดจากฐานข้อมูลไม่ส่งข้อความดิบกลับไปที่หน้าเว็บ
+const REPORT_RANGE_DAYS = { '7': 7, '30': 30, 'all': null };
+app.get("/api/dashboard/summary", checkAccessToken, requireRole([2]), async (req, res) => {
+    const rangeKey = req.query.range;
+    if (typeof rangeKey !== 'string' || !Object.prototype.hasOwnProperty.call(REPORT_RANGE_DAYS, rangeKey)) {
+        return res.json({ isError: true, data: "", errorMessage: "ช่วงเวลาไม่ถูกต้อง (เลือกได้ 7, 30 หรือ all)" });
+    }
+
+    const response = await dashboard.getReportSummary(REPORT_RANGE_DAYS[rangeKey]);
+    if (response.isError) {
+        return res.json({ isError: true, data: "", errorMessage: "ไม่สามารถโหลดรายงานสรุปได้ กรุณาลองใหม่อีกครั้ง" });
+    }
+
+    res.json({ isError: false, data: buildReportSummary(response.data, rangeKey), errorMessage: "" });
 });
 
 // ระบบแจ้งเตือนฝั่งเจ้าหน้าที่ — feed เดียวใช้ร่วมกันทุกคน (ไม่แยกตามคน ตามที่ตกลงกัน) เห็นเฉพาะสิทธิ์
@@ -218,12 +254,23 @@ app.post("/api/notifications/:id/read", checkAccessToken, requireRole([2]), asyn
     res.json(response);
 });
 
+// เจ้าหน้าที่เปิดเคส → ล้างป้าย "มีอัปเดตใหม่จากนักศึกษา" ของเคสนั้น
+app.post("/api/notifications/read-by-request/:requestId", checkAccessToken, requireRole([2]), async (req, res) => {
+    const requestId = parseInt(req.params.requestId, 10);
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+        return res.json({ isError: true, data: "", errorMessage: "รหัสเคสไม่ถูกต้อง" });
+    }
+
+    const response = await notification.markReadByRequest(requestId);
+    res.json(response);
+});
+
 app.post("/api/notifications/read-all", checkAccessToken, requireRole([2]), async (req, res) => {
     const response = await notification.markAllAsRead();
     res.json(response);
 });
 
-app.get("/api/repair_request/get_by_id/:request_id", checkAccessToken, async (req, res) => {
+app.get("/api/repair_request/get_by_id/:request_id", checkAccessToken, requireCaseAccess, async (req, res) => {
     const requestId = req.params.request_id;
     const response = await repair_request.getRepairRequestById(requestId);
 
@@ -242,7 +289,7 @@ app.get("/api/repair_request/get_by_id/:request_id", checkAccessToken, async (re
     res.json(response);
 });
 
-app.get("/api/repair_request/get_timeline/:request_id", checkAccessToken, async (req, res) => {
+app.get("/api/repair_request/get_timeline/:request_id", checkAccessToken, requireCaseAccess, async (req, res) => {
     const requestId = req.params.request_id;
     const response = await repair_timeline.getTimelineByRequestId(requestId);
     res.json(response);
@@ -310,7 +357,7 @@ app.post("/api/repair_request/:request_id/photos", checkAccessToken, (req, res, 
     res.json(response);
 });
 
-app.get("/api/repair_request/:request_id/photos", checkAccessToken, async (req, res) => {
+app.get("/api/repair_request/:request_id/photos", checkAccessToken, requireCaseAccess, async (req, res) => {
     const requestId = req.params.request_id;
     const response = await repair_request_photo.getPhotosByRequestId(requestId);
     res.json(response);
@@ -330,7 +377,7 @@ app.post("/api/repair_request/update", checkAccessToken, async (req, res) => {
     res.json(response);
 });
 
-app.post("/api/repair_request/approve", checkAccessToken, async (req, res) => {
+app.post("/api/repair_request/approve", checkAccessToken, requireRole([2]), async (req, res) => {
     const requestId = req.body.request_id;
     const accountId = req.decoded.user_id;
 
@@ -338,7 +385,7 @@ app.post("/api/repair_request/approve", checkAccessToken, async (req, res) => {
     res.json(response);
 });
 
-app.post("/api/repair_request/reject", checkAccessToken, async (req, res) => {
+app.post("/api/repair_request/reject", checkAccessToken, requireRole([2]), async (req, res) => {
     const requestId = req.body.request_id;
     const reason = req.body.reason;
     const accountId = req.decoded.user_id;
@@ -347,7 +394,7 @@ app.post("/api/repair_request/reject", checkAccessToken, async (req, res) => {
     res.json(response);
 });
 
-app.post("/api/repair_request/assign_technician", checkAccessToken, async (req, res) => {
+app.post("/api/repair_request/assign_technician", checkAccessToken, requireRole([2]), async (req, res) => {
     const requestId = req.body.request_id;
     const technicianId = req.body.technician_id;
     const appointmentDate = req.body.appointment_date;
@@ -384,14 +431,14 @@ app.get("/api/repair_request/slot_availability", checkAccessToken, requireRole([
     res.json(response);
 });
 
-app.post("/api/repair_request/complete", checkAccessToken, async (req, res) => {
+app.post("/api/repair_request/complete", checkAccessToken, requireRole([2]), async (req, res) => {
     const requestId = req.body.request_id;
 
     const response = await repair_request.completeRepairRequest(requestId);
     res.json(response);
 });
 
-app.post("/api/repair_request/cancel_appointment", checkAccessToken, async (req, res) => {
+app.post("/api/repair_request/cancel_appointment", checkAccessToken, requireRole([2]), async (req, res) => {
     const requestId = req.body.request_id;
 
     const response = await repair_request.cancelAppointment(requestId);
@@ -410,10 +457,84 @@ app.post("/api/repair_request/accept_completion", checkAccessToken, async (req, 
     res.json(response);
 });
 
+// ตัวเลือกเหตุผลใน dropdown ของป๊อปอัปเร่งงาน (is_urgent ใช้ฝั่งเจ้าหน้าที่ แอปนักศึกษาไม่ต้องใช้)
+app.get("/api/rush_reason/get_all", checkAccessToken, async (req, res) => {
+    const response = await rush_reason.getAllRushReason();
+    res.json(response);
+});
+
+// นักศึกษายกเลิกคำร้องเอง — เฉพาะเจ้าของเคส และทำได้เฉพาะสถานะ "รอตรวจสอบ" (model ตรวจซ้ำภายใต้ล็อก);
+// เหตุผลไม่บังคับ (ถ้าว่าง model ใส่ข้อความเริ่มต้นให้) ไม่เกิน 500 ตัวอักษรเหมือนเหตุผลที่ไม่ยอมรับผลซ่อม
+app.post("/api/repair_request/cancel_by_student", checkAccessToken, async (req, res) => {
+    const requestId = parseInt(req.body.request_id, 10);
+    const reason = (typeof req.body.reason === 'string' ? req.body.reason : '').trim();
+
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+        return res.json({ isError: true, data: "", errorMessage: "รหัสเคสไม่ถูกต้อง" });
+    }
+    if (!(await isOwnRequest(requestId, req.decoded.user_id))) {
+        return res.json({ isError: true, data: "", errorMessage: "ไม่มีสิทธิ์ยกเลิกเคสนี้" });
+    }
+    if (reason.length > 500) {
+        return res.json({ isError: true, data: "", errorMessage: "เหตุผลต้องไม่เกิน 500 ตัวอักษร" });
+    }
+
+    const response = await repair_request.cancelRepairRequestByStudent(requestId, reason);
+    res.json(response);
+});
+
+// นักศึกษากด "เร่งการจัดการงาน" — เฉพาะเจ้าของเคส; เงื่อนไขเวลา/สถานะ/cooldown ตรวจใน model ภายใต้ล็อกอีกชั้น
+app.post("/api/repair_request/rush", checkAccessToken, async (req, res) => {
+    const requestId = parseInt(req.body.request_id, 10);
+    const reasonId = parseInt(req.body.reason_id, 10);
+    const reasonNote = (typeof req.body.reason_note === 'string' ? req.body.reason_note : '').trim();
+
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+        return res.json({ isError: true, data: "", errorMessage: "รหัสเคสไม่ถูกต้อง" });
+    }
+    if (!(await isOwnRequest(requestId, req.decoded.user_id))) {
+        return res.json({ isError: true, data: "", errorMessage: "ไม่มีสิทธิ์เร่งงานของเคสนี้" });
+    }
+    if (!Number.isInteger(reasonId) || reasonId <= 0) {
+        return res.json({ isError: true, data: "", errorMessage: "กรุณาเลือกเหตุผลที่ขอเร่ง" });
+    }
+    if (reasonNote.length > 200) {
+        return res.json({ isError: true, data: "", errorMessage: "ข้อความเหตุผลต้องไม่เกิน 200 ตัวอักษร" });
+    }
+
+    const response = await repair_request.rushRepairRequest(requestId, reasonId, reasonNote);
+    res.json(response);
+});
+
+// กระดิ่งแจ้งเตือนของนักศึกษา — เฉพาะเคสของตัวเอง (กรองด้วย user_id จาก token ไม่รับ id จาก client)
+app.get("/api/student/notifications", checkAccessToken, async (req, res) => {
+    const response = await repair_request.getStudentNotifications(req.decoded.user_id);
+    res.json(response);
+});
+
+app.post("/api/repair_request/mark_all_seen", checkAccessToken, async (req, res) => {
+    const response = await repair_request.markAllSeen(req.decoded.user_id);
+    res.json(response);
+});
+
+// นักศึกษาเปิดดูเคส → ล้างจุดแดง "มีอัปเดตใหม่" ของเคสนั้น (เฉพาะเจ้าของเคส)
+app.post("/api/repair_request/mark_seen", checkAccessToken, async (req, res) => {
+    const requestId = parseInt(req.body.request_id, 10);
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+        return res.json({ isError: true, data: "", errorMessage: "รหัสเคสไม่ถูกต้อง" });
+    }
+    if (!(await isOwnRequest(requestId, req.decoded.user_id))) {
+        return res.json({ isError: true, data: "", errorMessage: "ไม่มีสิทธิ์เข้าถึงเคสนี้" });
+    }
+
+    const response = await repair_request.markSeen(requestId);
+    res.json(response);
+});
+
 // นักศึกษากด "ไม่ยอมรับ" ผลซ่อม (เฉพาะตอนยื่นคำร้องครบสิทธิ์แล้ว — backend ตรวจใน declineRepairCompletion)
-// ต้องระบุเหตุผล (เหมือนเหตุผลคืนสินค้าฝั่งอีคอมเมิร์ซ) แทนการให้ดาวประเมิน เพราะงานที่ "ไม่สำเร็จ" ไม่ควร
-// ถูกให้คะแนนความพอใจแบบเดียวกับงานที่เสร็จเรียบร้อย เก็บไว้ที่ step_detail ของ timeline 'declined' เหมือน
-// เหตุผลยกเลิกงาน/ปฏิเสธคำร้องที่ใช้คอลัมน์เดิมอยู่แล้ว ไม่ต้องเพิ่มคอลัมน์ใหม่
+// ขั้นนี้แค่ปิดเคสเป็น "ซ่อมไม่สำเร็จ" ส่วนเหตุผล/รูปให้นักศึกษาส่งเป็นการประเมินแบบไม่มีดาว (POST /:request_id/evaluation
+// สถานะ 8) เหมือนที่งานสำเร็จปิดเคสก่อนแล้วค่อยประเมิน — reason ตรงนี้จึงไม่บังคับ (แอปเวอร์ชันเก่าที่ยังส่งมาก็เก็บลง
+// step_detail ของ timeline 'declined' ตามเดิม)
 app.post("/api/repair_request/decline_completion", checkAccessToken, async (req, res) => {
     const requestId = req.body.request_id;
     const studentId = req.decoded.user_id;
@@ -422,14 +543,11 @@ app.post("/api/repair_request/decline_completion", checkAccessToken, async (req,
     if (!(await isOwnRequest(requestId, studentId))) {
         return res.json({ isError: true, data: "", errorMessage: "ไม่มีสิทธิ์ตัดสินเคสนี้" });
     }
-    if (!reason) {
-        return res.json({ isError: true, data: "", errorMessage: "กรุณาระบุเหตุผลที่ไม่ยอมรับผลการซ่อม" });
-    }
     if (reason.length > 500) {
         return res.json({ isError: true, data: "", errorMessage: "เหตุผลต้องไม่เกิน 500 ตัวอักษร" });
     }
 
-    const response = await repair_request.declineRepairCompletion(requestId, reason);
+    const response = await repair_request.declineRepairCompletion(requestId, reason || null);
     res.json(response);
 });
 
@@ -574,7 +692,7 @@ app.post("/api/repair_request/complaint/limit", checkAccessToken, requireRole([2
     res.json(response);
 });
 
-app.get("/api/repair_request/:request_id/complaints", checkAccessToken, async (req, res) => {
+app.get("/api/repair_request/:request_id/complaints", checkAccessToken, requireCaseAccess, async (req, res) => {
     const requestId = req.params.request_id;
     const response = await repair_complaint.getByRequestId(requestId);
     res.json(response);
@@ -582,7 +700,7 @@ app.get("/api/repair_request/:request_id/complaints", checkAccessToken, async (r
 
 // รายงานผลซ่อมแยกตามรายการงานซ่อม (repair_type) ของเคส — ใช้ทั้งฝั่ง moderator เปิด "จัดการ"
 // และฝั่งนักศึกษาดูผลซ่อม
-app.get("/api/repair_request/:request_id/completion_items", checkAccessToken, async (req, res) => {
+app.get("/api/repair_request/:request_id/completion_items", checkAccessToken, requireCaseAccess, async (req, res) => {
     const requestId = req.params.request_id;
     const response = await repair_completion_item.getByRequestId(requestId);
     res.json(response);
@@ -626,6 +744,23 @@ app.post("/api/repair_request/:request_id/completion_items/:repair_type_id/repor
 
 // เช็คว่า request นี้เป็นของนักศึกษาคนที่ล็อกอินอยู่จริง (ก่อนแก้ไข/ลบผลประเมิน)
 // mirror pattern เดิมของไฟล์นี้ที่ใช้ req.decoded.user_id เทียบตรงๆ กับ student_id
+// ตรวจสิทธิ์อ่านข้อมูลเคสรายตัว (รูป ไทม์ไลน์ รายงาน คำร้อง รีวิว) — ผ่านเมื่อเป็นเจ้าหน้าที่ (role 2) หรือเป็นนักศึกษา
+// (role 1) เจ้าของเคสนั้นเท่านั้น; เดิมแค่ล็อกอินก็อ่านเคสของคนอื่นได้ถ้ารู้ id ซึ่งเป็นเลขเรียงเดาง่าย ข้อมูลมีชื่อ เบอร์ ห้อง
+// เช็ก role ร่วมด้วย ไม่พึ่งการเทียบ user_id กับ student_id อย่างเดียว (id ของเจ้าหน้าที่อาจบังเอิญตรงกับ id นักศึกษา)
+async function requireCaseAccess(req, res, next) {
+    const requestId = parseInt(req.params.request_id, 10);
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+        return res.json({ isError: true, data: "", errorMessage: "รหัสเคสไม่ถูกต้อง" });
+    }
+
+    const roleId = req.decoded?.role_id;
+    if (roleId === 2 || (roleId === 1 && (await isOwnRequest(requestId, req.decoded.user_id)))) {
+        return next();
+    }
+
+    return res.json({ isError: true, data: "", errorMessage: "คุณไม่มีสิทธิ์เข้าถึงเคสนี้" });
+}
+
 async function isOwnRequest(requestId, studentId) {
     const conn = await db_pool.getConnection();
     try {
@@ -656,6 +791,38 @@ function parseValidRating(rawRating) {
     return rating;
 }
 
+// กติกาการประเมินแยกตามสถานะของเคส (ใช้ทั้งตอนสร้างและแก้ไข):
+//   6 สำเร็จ        → ต้องมีดาว 1-5 ข้อความไม่บังคับ
+//   8 ซ่อมไม่สำเร็จ → ไม่มีดาว (ปฏิเสธถ้าส่งมา) และต้องมีข้อความเหตุผล เพราะไม่มีดาวให้บอกอะไร ข้อความคือข้อมูลเดียว
+// คืน { rating, feedback } หรือ { errorMessage } — ไม่ throw เพื่อให้ route ตอบรูปแบบ isError เดียวกับที่อื่น
+const FAILED_FEEDBACK_MAX_LENGTH = 500;
+function validateEvaluationInput(status, rawRating, rawFeedback) {
+    const feedback = (rawFeedback || '').trim();
+
+    if (status === 6) {
+        const rating = parseValidRating(rawRating);
+        if (rating === null) {
+            return { errorMessage: "กรุณาให้คะแนน 1-5 ดาว" };
+        }
+        return { rating, feedback: feedback || null };
+    }
+
+    if (status === 8) {
+        if (rawRating !== undefined && rawRating !== null && String(rawRating).trim() !== '') {
+            return { errorMessage: "เคสที่ซ่อมไม่สำเร็จไม่มีการให้ดาว" };
+        }
+        if (!feedback) {
+            return { errorMessage: "กรุณาระบุเหตุผลที่ไม่ยอมรับผลการซ่อม" };
+        }
+        if (feedback.length > FAILED_FEEDBACK_MAX_LENGTH) {
+            return { errorMessage: `เหตุผลต้องไม่เกิน ${FAILED_FEEDBACK_MAX_LENGTH} ตัวอักษร` };
+        }
+        return { rating: null, feedback };
+    }
+
+    return { errorMessage: "ประเมินได้เฉพาะเคสที่ปิดแล้ว (สำเร็จหรือซ่อมไม่สำเร็จ) เท่านั้น" };
+}
+
 app.post("/api/repair_request/:request_id/evaluation", checkAccessToken, (req, res, next) => {
     uploadEvaluationPhoto.array('photos', 6)(req, res, (err) => {
         if (err) {
@@ -665,21 +832,22 @@ app.post("/api/repair_request/:request_id/evaluation", checkAccessToken, (req, r
     });
 }, async (req, res) => {
     const requestId = req.params.request_id;
-    const rating = parseValidRating(req.body.rating);
+    const studentId = req.decoded.user_id;
 
-    if (rating === null) {
-        return res.json({ isError: true, data: "", errorMessage: "กรุณาให้คะแนน 1-5 ดาว" });
+    // ก่อนหน้านี้ route นี้ไม่เช็คเจ้าของเคส (ตรวจแค่สถานะ) นักศึกษาคนอื่นที่รู้ id ประเมินแทนกันได้ — เพิ่มเช็คแบบเดียวกับ update/delete
+    if (!(await isOwnRequest(requestId, studentId))) {
+        return res.json({ isError: true, data: "", errorMessage: "ไม่มีสิทธิ์ประเมินเคสนี้" });
     }
 
-    // ประเมินได้ก็ต่อเมื่อเคส "สำเร็จ"(6) แล้วเท่านั้น — ก่อนหน้านี้ไม่เคยเช็คสถานะเลย ใครก็ประเมินเคส
-    // ไหนก็ได้ทุกสถานะ (ช่องโหว่ที่พบตอนวางแผนฟีเจอร์ยอมรับ/แจ้งแก้ไขงานซ่อม)
+    // ประเมินได้เมื่อเคสปิดแล้วเท่านั้น: สำเร็จ (6) ให้ดาว / ซ่อมไม่สำเร็จ (8) ไม่มีดาวแต่ต้องมีข้อความ (ดู validateEvaluationInput)
     const currentStatus = await getRequestStatus(requestId);
-    if (currentStatus !== 6) {
-        return res.json({ isError: true, data: "", errorMessage: "ประเมินได้เฉพาะเคสที่นักศึกษายืนยันเสร็จสิ้นแล้วเท่านั้น" });
+    const input = validateEvaluationInput(currentStatus, req.body.rating, req.body.feedback);
+    if (input.errorMessage) {
+        return res.json({ isError: true, data: "", errorMessage: input.errorMessage });
     }
 
     const photoUrls = (req.files || []).map((file) => `/uploads/repair_evaluation_photos/${file.filename}`);
-    const response = await repair_evaluation.createEvaluation(requestId, rating, req.body.feedback || null, photoUrls);
+    const response = await repair_evaluation.createEvaluation(requestId, input.rating, input.feedback, photoUrls);
     res.json(response);
 });
 
@@ -689,7 +857,7 @@ app.get("/api/repair_evaluation/get_all_by_user", checkAccessToken, async (req, 
     res.json(response);
 });
 
-app.get("/api/repair_request/:request_id/evaluation", checkAccessToken, async (req, res) => {
+app.get("/api/repair_request/:request_id/evaluation", checkAccessToken, requireCaseAccess, async (req, res) => {
     const requestId = req.params.request_id;
     const response = await repair_evaluation.getByRequestId(requestId);
     res.json(response);
@@ -710,9 +878,11 @@ app.post("/api/repair_request/evaluation/update", checkAccessToken, (req, res, n
         return res.json({ isError: true, data: "", errorMessage: "ไม่มีสิทธิ์แก้ไขการประเมินนี้" });
     }
 
-    const rating = parseValidRating(req.body.rating);
-    if (rating === null) {
-        return res.json({ isError: true, data: "", errorMessage: "กรุณาให้คะแนน 1-5 ดาว" });
+    // กติกาเดียวกับตอนสร้าง และเพิ่มการตรวจสถานะ (ก่อนหน้านี้ route แก้ไขไม่ตรวจสถานะเลย)
+    const currentStatus = await getRequestStatus(requestId);
+    const input = validateEvaluationInput(currentStatus, req.body.rating, req.body.feedback);
+    if (input.errorMessage) {
+        return res.json({ isError: true, data: "", errorMessage: input.errorMessage });
     }
 
     // keep_urls = รายชื่อรูปเดิมที่ยังอยากเก็บไว้ (JSON string array) — mirror pattern เดียวกับ
@@ -735,7 +905,7 @@ app.post("/api/repair_request/evaluation/update", checkAccessToken, (req, res, n
     }
 
     const photoUrls = [...keepUrls, ...newUrls];
-    const response = await repair_evaluation.updateEvaluation(requestId, rating, req.body.feedback || null, photoUrls);
+    const response = await repair_evaluation.updateEvaluation(requestId, input.rating, input.feedback, photoUrls);
 
     if (!response.isError && response.data.removedUrls) {
         for (const oldPath of response.data.removedUrls) {
@@ -756,6 +926,12 @@ app.post("/api/repair_request/evaluation/delete", checkAccessToken, async (req, 
         return res.json({ isError: true, data: "", errorMessage: "ไม่มีสิทธิ์ลบการประเมินนี้" });
     }
 
+    // ลบได้เฉพาะเคสที่ปิดแล้ว (สำเร็จ/ซ่อมไม่สำเร็จ) เหมือนกติกาสร้าง/แก้ไข
+    const currentStatus = await getRequestStatus(requestId);
+    if (currentStatus !== 6 && currentStatus !== 8) {
+        return res.json({ isError: true, data: "", errorMessage: "ลบการประเมินได้เฉพาะเคสที่ปิดแล้วเท่านั้น" });
+    }
+
     const response = await repair_evaluation.deleteByRequestId(requestId);
 
     if (!response.isError && response.data.removedUrls) {
@@ -767,12 +943,12 @@ app.post("/api/repair_request/evaluation/delete", checkAccessToken, async (req, 
     res.json(response);
 });
 
-app.get("/api/technician/get_all", checkAccessToken, async (req, res) => {
+app.get("/api/technician/get_all", checkAccessToken, requireRole([2]), async (req, res) => {
     const response = await technician.getAllTechnicians();
     res.json(response);
 });
 
-app.post("/api/repair_request/delete", checkAccessToken, async (req, res) => {
+app.post("/api/repair_request/delete", checkAccessToken, requireRole([2]), async (req, res) => {
     const requestIds = req.body.request_ids ?? req.body.requestId;
 
     const response = await repair_request.deleteRepairRequest(requestIds);
@@ -937,3 +1113,23 @@ app.get("/api/equipment/:equipment_id/photos", checkAccessToken, requireRole([2]
 app.listen(port, () => {
     console.log("Server is running");
 });
+
+// ปิดงานอัตโนมัติ: รันตอนเริ่ม server 1 ครั้ง แล้วทุก 1 ชั่วโมง (ไม่ใช้ library เพิ่ม) — flag running กันรอบซ้อนกันถ้ารอบก่อน
+// ยังไม่จบ; ถ้า server ดับนานแล้วเปิดใหม่ เคสที่ครบกำหนดค้างอยู่จะถูกปิดพร้อมกันในรอบแรก จึงบันทึกจำนวนไว้ใน log
+let autoCloseRunning = false;
+async function runAutoClose() {
+    if (autoCloseRunning) return;
+    autoCloseRunning = true;
+    try {
+        const closed = await repair_request.autoCloseStaleRequests();
+        if (closed > 0) {
+            console.log(`ปิดงานอัตโนมัติ ${closed} เคส`);
+        }
+    } catch (error) {
+        console.log("ปิดงานอัตโนมัติไม่สำเร็จ");
+    } finally {
+        autoCloseRunning = false;
+    }
+}
+runAutoClose();
+setInterval(runAutoClose, 60 * 60 * 1000);
