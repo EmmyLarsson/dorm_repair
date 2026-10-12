@@ -370,6 +370,11 @@ function SlotAvailabilityCalendar({ minDate, availability, selectedDate, selecte
   const days = Array.from({ length: 7 }, (_, i) => addDaysToDateStr(minDate, i));
   const selectedSlot = availability?.[selectedDate]?.[selectedTimeslot];
 
+  // ช่วงของวันนี้ที่เริ่มไปแล้ว (ชั่วโมงเริ่ม <= ชั่วโมงปัจจุบัน) เลือกไม่ได้ — เกณฑ์เดียวกับที่ backend
+  // (assignTechnician / findNextAvailableAppointment) ใช้ ใช้วันที่ตามเวลาเครื่องไม่ใช่ UTC
+  const now = new Date();
+  const todayLocal = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -401,7 +406,10 @@ function SlotAvailabilityCalendar({ minDate, availability, selectedDate, selecte
               const isFull = slot.isRevisionLocked || slot.count >= 3;
               const isPartial = !isFull && slot.count > 0;
               const isSelected = selectedDate === date && selectedTimeslot === slotDef.key;
-              const colorClasses = isFull
+              const isPast = date === todayLocal && Number(slotDef.key.split('-')[0]) <= now.getHours();
+              const colorClasses = isPast
+                ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
+                : isFull
                 ? 'bg-red-100 border-red-300 text-red-800'
                 : isPartial
                 ? 'bg-amber-100 border-amber-300 text-amber-800'
@@ -414,13 +422,14 @@ function SlotAvailabilityCalendar({ minDate, availability, selectedDate, selecte
                 <button
                   key={date + slotDef.key}
                   type="button"
-                  title={caseTitle}
+                  title={isPast ? 'ช่วงเวลานี้ผ่านไปแล้ว' : caseTitle}
+                  disabled={isPast}
                   onClick={() => onPick(date, slotDef.key)}
                   className={`rounded-lg border-[1.5px] py-2 text-[11px] font-extrabold min-h-11 ${colorClasses} ${
                     isSelected ? 'ring-2 ring-blue-700 ring-offset-1' : ''
                   }`}
                 >
-                  {slot.isRevisionLocked ? 'เต็ม' : `${slot.count}/3`}
+                  {isPast ? 'ผ่านแล้ว' : slot.isRevisionLocked ? 'เต็ม' : `${slot.count}/3`}
                 </button>
               );
             })}

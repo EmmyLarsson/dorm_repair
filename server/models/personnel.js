@@ -1,7 +1,7 @@
 const pool = require('../libs/db_pool');
 
 async function generatePersonNo(conn, personId) {
-    var sql = "UPDATE person SET person_no = CONCAT('p', LPAD(?, 5, '0')) WHERE person_id = ?";
+    var sql = "UPDATE person SET person_no = CONCAT('P', LPAD(?, 5, '0')) WHERE person_id = ?";
     await conn.query(sql, [personId, personId]);
 }
 
