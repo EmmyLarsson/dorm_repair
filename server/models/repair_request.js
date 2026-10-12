@@ -262,16 +262,14 @@ module.exports = {
           "  rr.request_id, " +
           "  rr.case_code, " +
           "  rr.contact_name AS student_name, " +
-          // รูปโปรไฟล์นักศึกษา ส่งให้เฉพาะเคสที่แจ้งด้วย "ข้อมูลเดิม" ของโปรไฟล์: ชื่อ+เบอร์+ห้องที่บันทึกในเคสต้อง
-          // ตรงกับข้อมูลโปรไฟล์ทั้งสามค่า (ถ้านักศึกษากรอกข้อมูลใหม่ ผู้ติดต่ออาจไม่ใช่เจ้าของรูป จึงไม่ส่ง = NULL)
-          // ระบบไม่ได้เก็บแฟลกว่าเลือกโหมดไหนตอนแจ้ง (ไม่แก้ schema) จึงใช้การเทียบค่า — ถ้านักศึกษาแก้โปรไฟล์ภายหลัง
-          // เคสเก่าที่ค่าไม่ตรงแล้วจะไม่มีรูป; เบอร์ตัด '-' และช่องว่างก่อนเทียบเพราะเคสเก่าเก็บแบบมีขีด
+          // รูปโปรไฟล์นักศึกษา ส่งให้เฉพาะเคสที่ชื่อผู้ติดต่อที่บันทึกในเคสตรงกับชื่อเจ้าของบัญชี (ถ้าแจ้งแทนเพื่อน ชื่อจะไม่ตรง
+          // จึงไม่ส่ง = NULL แล้วหน้าเว็บแสดงไอคอนคนเปล่าแทน) ไม่เทียบเบอร์/ห้องแล้ว เพราะ 2 ค่านี้เปลี่ยนได้ตามปกติ (ย้ายห้อง
+          // เปลี่ยนเบอร์) ทำให้เคสเก่าที่ใช้ข้อมูลโปรไฟล์เดิมไม่มีรูป — ข้อจำกัด: ระบบไม่ได้เก็บแฟลกว่าแจ้งแทนใครไว้ (ไม่แก้
+          // schema) ถ้านักศึกษาเปลี่ยนชื่อในโปรไฟล์ภายหลัง เคสเก่าจะไม่ตรงชื่อและไม่มีรูป
           // ใช้ subquery แทน JOIN เพื่อไม่ต้องแตะ GROUP BY ด้านล่าง
           "  (SELECT sp.profile_image FROM student st JOIN person sp ON sp.person_id = st.person_id " +
           "   WHERE st.student_id = rr.student_id " +
-          "   AND rr.contact_name = CONCAT(sp.firstname, ' ', sp.lastname) " +
-          "   AND REPLACE(REPLACE(rr.contact_phone, '-', ''), ' ', '') = sp.phone " +
-          "   AND rr.target_room = st.room_number) AS student_profile_image, " +
+          "   AND rr.contact_name = CONCAT(sp.firstname, ' ', sp.lastname)) AS student_profile_image, " +
           "  rr.target_room AS room_number, " +
           "  GROUP_CONCAT(rt.repair_type_name SEPARATOR ',') AS type_names, " +
           // เหตุผลเดียวกับใน getRepairRequestById — openManageModal ฝั่ง moderator ใช้ค่าจาก list นี้
@@ -1182,11 +1180,17 @@ module.exports = {
             if (technicianChanged || appointmentChanged) {
                 var detailMessage;
                 if (!normalizedAppointmentDate) {
-                    detailMessage = notes || null;
+                    // ไม่มีวันนัด = มอบหมายช่าง/ล้างวันนัดอย่างเดียว ต้องมีข้อความเสมอ ไม่เขียนค่าว่าง (การ์ดในไทม์ไลน์นักศึกษา
+                    // ใช้ข้อความนี้เป็นเนื้อหา ค่าว่างทำให้ได้การ์ดหัวข้อ "ได้รับวันนัดหมาย" ที่ไม่มีอะไรอยู่ข้างใน)
+                    detailMessage = notes || (previous.appointment_date
+                        ? `ยกเลิกวันนัดหมายเดิม ${formatAppointmentThai(previous.appointment_date)}`
+                        : 'มอบหมายช่างแล้ว (ยังไม่กำหนดวันนัดหมาย)');
                 } else if (!previous.appointment_date) {
                     detailMessage = `ได้รับวันนัดหมายซ่อม ${formatAppointmentThai(normalizedAppointmentDate)}`;
                 } else if (previous.appointment_date !== normalizedAppointmentDate) {
-                    detailMessage = `เลื่อนกำหนดการซ่อมเป็น ${formatAppointmentThai(normalizedAppointmentDate)}`;
+                    // ต่อท้าย "จากเดิม ..." ให้ประวัติบอกวันนัดเดิมในแถวเดียวกัน ข้อความขึ้นต้น "เลื่อน" เหมือนเดิม (แอปตรวจด้วย
+                    // startsWith) และไม่มีวงเล็บ จึงไม่ปนกับหมายเหตุของเจ้าหน้าที่ที่ต่อท้ายเป็น "(...)"
+                    detailMessage = `เลื่อนกำหนดการซ่อมเป็น ${formatAppointmentThai(normalizedAppointmentDate)} จากเดิม ${formatAppointmentThai(previous.appointment_date)}`;
                 } else {
                     detailMessage = `กำหนดการซ่อม ${formatAppointmentThai(normalizedAppointmentDate)}`;
                 }

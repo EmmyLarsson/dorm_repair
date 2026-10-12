@@ -8,6 +8,7 @@ import { InfoRow, SectionHeader, MetadataBadge } from './ui/InfoRow';
 import { AppAPI } from '../utils/appApi';
 import { RepairRequestModel } from '../models/repairRequestModel';
 import { photoFullUrl } from '../utils/photoUtil';
+import { formatPhoneForDisplay } from '../utils/phoneUtil';
 
 async function getRepairRequestDetail(requestId) {
   const response = await AppAPI.get(`/repair_request/get_by_id/${requestId}`);
@@ -158,7 +159,7 @@ const RepairDetailModal = ({ repairId, onClose, onApprove, onReject }) => {
               <SectionHeader icon="account_circle" title="ข้อมูลส่วนตัว" />
               <div className="grid gap-3">
                 <InfoRow label="ชื่อ" value={studentName} variant="card" />
-                <InfoRow label="เบอร์โทรศัพท์" value={phoneNumber} variant="card" />
+                <InfoRow label="เบอร์โทรศัพท์" value={formatPhoneForDisplay(phoneNumber)} variant="card" />
                 <InfoRow label="หมายเลขห้อง" value={roomNumber} variant="card" />
               </div>
             </section>

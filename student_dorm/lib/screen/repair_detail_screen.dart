@@ -1089,7 +1089,10 @@ class _CaseStatusScreenState extends State<CaseStatusScreen> {
           return SimpleTimelineCard(
             title: historyTitle,
             date: formatDateShort(step.eventDate),
-            description: step.detail ?? '',
+            // แถวนัดหมายเก่าก่อนระบบเก็บข้อความวันนัดไม่มี step.detail (กู้วันที่ไม่ได้) ไม่ปล่อยเป็นการ์ดว่าง
+            description: (step.detail == null || step.detail!.isEmpty)
+                ? 'มีการนัดหมายครั้งนี้ แต่ไม่ได้บันทึกวันที่ไว้ (ข้อมูลก่อนระบบเก็บวันนัด)'
+                : step.detail!,
           );
         }
         return AppointmentCard(

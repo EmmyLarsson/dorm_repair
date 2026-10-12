@@ -1,4 +1,5 @@
 import { photoFullUrl } from '../../utils/photoUtil';
+import { formatPhoneForDisplay } from '../../utils/phoneUtil';
 
 const ROLE_BADGE_CLASS = {
   1: 'bg-indigo-100 text-indigo-800',
@@ -32,7 +33,7 @@ function PersonnelCard({
   } else if (person.roleId === 3) {
     metaLines.push({ icon: 'construction', label: 'ความเชี่ยวชาญ', value: person.specialtyName || '-' });
   }
-  metaLines.push({ icon: 'call', label: 'เบอร์โทร', value: person.phone || '-' });
+  metaLines.push({ icon: 'call', label: 'เบอร์โทร', value: formatPhoneForDisplay(person.phone) || '-' });
 
   return (
     <article className="relative rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-lg flex flex-col">

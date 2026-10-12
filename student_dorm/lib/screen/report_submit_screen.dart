@@ -14,6 +14,7 @@ import 'package:student_dorm/widgets/report_submit/image_preview_grid.dart';
 import 'package:student_dorm/widgets/report_submit/existing_photo_grid.dart';
 import 'package:student_dorm/widgets/entry_permission_card.dart';
 import 'package:student_dorm/utils/validators.dart';
+import 'package:student_dorm/utils/phone_formatter.dart';
 
 class ReportSubmitScreen extends StatefulWidget {
   const ReportSubmitScreen({super.key, this.requestId = 0});
@@ -107,7 +108,7 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
     setState(() {
       nameController.text = nameParts.first;
       lastNameController.text = nameParts.length > 1 ? nameParts.sublist(1).join(' ') : '';
-      phoneController.text = detail.contactPhone;
+      phoneController.text = formatPhoneDisplay(detail.contactPhone);
       roomNumberController.text = detail.roomNumber;
       descriptionController.text = detail.description;
       _permission = detail.allowEntry ? 'yes' : 'no';
@@ -182,7 +183,7 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
       setState(() {
         nameController.text = profile?['firstname'] as String? ?? '';
         lastNameController.text = profile?['lastname'] as String? ?? '';
-        phoneController.text = profile?['phone'] as String? ?? '';
+        phoneController.text = formatPhoneDisplay(profile?['phone'] as String? ?? '');
         roomNumberController.text = profile?['room_number'] as String? ?? '';
         _errName = false;
         _errLastName = false;
@@ -291,7 +292,7 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
       _errName = nameController.text.trim().isEmpty;
       _errLastName = lastNameController.text.trim().isEmpty;
 
-      final phoneValue = phoneController.text.trim();
+      final phoneValue = phoneDigitsOnly(phoneController.text);
       if (phoneValue.isEmpty) {
         _errPhone = true;
         _phoneErrorText = null; // ใช้ข้อความ default "กรุณากรอกเบอร์โทรติดต่อ"
@@ -320,7 +321,7 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
   Future<(bool, String, String, int)> _doCreateRepairRequest() async {
     Map<String, dynamic> postData = {
       "name": _fullName,
-      "phone": phoneController.text.trim(),
+      "phone": phoneDigitsOnly(phoneController.text),
       "room_number": roomNumberController.text.trim(),
       "repair_type_ids": selectedRepairTypeIds,
       "description": descriptionController.text.trim(),
@@ -368,7 +369,7 @@ class _ReportSubmitScreenState extends State<ReportSubmitScreen> {
     Map<String, dynamic> postData = {
       "request_id": widget.requestId,
       "name": _fullName,
-      "phone": phoneController.text.trim(),
+      "phone": phoneDigitsOnly(phoneController.text),
       "room_number": roomNumberController.text.trim(),
       "repair_type_ids": selectedRepairTypeIds,
       "description": descriptionController.text.trim(),

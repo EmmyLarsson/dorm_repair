@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:student_dorm/color/colors.dart';
 import 'package:student_dorm/models/repair_detail_model.dart' show RepairCompletionItem;
+import 'package:student_dorm/utils/phone_formatter.dart';
 import 'package:student_dorm/widgets/repair_detail/completion_item_card.dart';
 
 const double kRadiusXl = 24;
@@ -252,7 +253,7 @@ class SimpleTimelineCard extends StatelessWidget {
                   _ContactRow(
                     icon: Icons.phone,
                     label: contactLabel ?? 'เบอร์ติดต่อเจ้าหน้าที่',
-                    value: contactPhone!,
+                    value: formatPhoneForDisplay(contactPhone!),
                     valueColor: kBlue,
                     onCopy: onCopyContact,
                     copied: contactCopied,
@@ -593,7 +594,7 @@ class AppointmentCard extends StatelessWidget {
                   _ContactRow(
                     icon: Icons.phone,
                     label: (moderatorName == null || moderatorName!.isEmpty) ? 'เจ้าหน้าที่' : moderatorName!,
-                    value: moderatorPhone!,
+                    value: formatPhoneForDisplay(moderatorPhone!),
                     valueColor: kBlue,
                     onCopy: onCopyModeratorPhone,
                     copied: moderatorPhoneCopied,
@@ -651,7 +652,7 @@ class AppointmentCard extends StatelessWidget {
                             children: [
                               Text('เบอร์ติดต่อ', style: TextStyle(fontSize: 11, color: kTextMuted, fontWeight: FontWeight.w500)),
                               Text(
-                                hasPhone ? technicianPhone! : 'ยังไม่ระบุ',
+                                hasPhone ? formatPhoneForDisplay(technicianPhone!) : 'ยังไม่ระบุ',
                                 style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: kBlue),
                               ),
                             ],

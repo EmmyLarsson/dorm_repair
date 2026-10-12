@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import BaseModal from '../BaseModal';
 import { photoFullUrl } from '../../utils/photoUtil';
+import { PHONE_DIGIT_COUNT, formatPhoneDisplay, phoneDigitsOnly } from '../../utils/phoneUtil';
 
 const EMPTY_FORM = {
   roleId: '',
@@ -43,12 +44,10 @@ function validateStudentUsername(username) {
   return '';
 }
 
-function validatePhone(phone) {
-  if (!/^\d+$/.test(phone)) {
-    return 'คุณกำลังใส่เบอร์โทรผิดรูปแบบ';
-  }
-  if (phone.length !== 10) {
-    return 'กรุณาใส่เบอร์โทรให้ครบ 10 หลัก';
+// รับเฉพาะเบอร์มือถือ 10 หลักที่ขึ้นต้น 06, 08, 09 — ผู้เรียกต้องส่งตัวเลขล้วนมา
+function validatePhone(phoneDigits) {
+  if (!/^0[689]\d{8}$/.test(phoneDigits)) {
+    return 'หมายเลขโทรศัพท์ไม่ถูกต้อง';
   }
   return '';
 }
@@ -89,6 +88,17 @@ function PersonnelFormModal({
   const [profileImagePreview, setProfileImagePreview] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
   const profileImageInputRef = useRef(null);
+  const phoneInputRef = useRef(null);
+  // ตำแหน่งเคอร์เซอร์ที่ต้องคืนหลังจัดรูปแบบเบอร์ — input แบบ controlled เด้งเคอร์เซอร์ไปท้ายสุด
+  // ทุกครั้งที่เราเปลี่ยนค่า ทำให้แก้เลขกลางเบอร์ไม่ได้ถ้าไม่คืนตำแหน่งให้
+  const pendingPhoneCursorRef = useRef(null);
+
+  useLayoutEffect(() => {
+    const cursor = pendingPhoneCursorRef.current;
+    if (cursor === null) return;
+    phoneInputRef.current?.setSelectionRange(cursor, cursor);
+    pendingPhoneCursorRef.current = null;
+  }, [form.phone]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -98,7 +108,7 @@ function PersonnelFormModal({
         roleId: String(person.roleId),
         firstname: person.firstname,
         lastname: person.lastname,
-        phone: person.phone,
+        phone: formatPhoneDisplay(person.phone || ''),
         // แสดง username เดิมให้เห็นว่าตอนนี้คือชื่ออะไร (แก้แล้วค่อยพิมพ์ทับ) — ต่างจาก password
         // ที่ต้องเว้นว่างเสมอเพราะเก็บเป็น hash ในฐานข้อมูล ไม่มีทางดึงค่าจริงกลับมาโชว์ได้
         username: person.username || '',
@@ -134,16 +144,55 @@ function PersonnelFormModal({
     setForm((f) => ({ ...f, [field]: value }));
   }
 
+  function handlePhoneChange(e) {
+    const rawValue = e.target.value;
+    const cursor = e.target.selectionStart ?? rawValue.length;
+    const previousDigits = phoneDigitsOnly(form.phone);
+
+    let digits = phoneDigitsOnly(rawValue);
+    let digitsBeforeCursor = phoneDigitsOnly(rawValue.slice(0, cursor)).length;
+
+    // ลบแล้วตัวเลขไม่ลดแปลว่าผู้ใช้ลบแค่ขีด — ถ้าปล่อยไว้ ขีดจะถูกเติมกลับทันทีแล้วลบไม่ไป
+    // จึงลบเลขตัวที่อยู่หน้าขีดแทน ให้การกดลบหนึ่งครั้งเดินถอยหลังได้จริง
+    const isDeleting = rawValue.length < form.phone.length;
+    if (isDeleting && digits === previousDigits && digitsBeforeCursor > 0) {
+      digits = digits.slice(0, digitsBeforeCursor - 1) + digits.slice(digitsBeforeCursor);
+      digitsBeforeCursor -= 1;
+    }
+
+    digits = digits.slice(0, PHONE_DIGIT_COUNT);
+    digitsBeforeCursor = Math.min(digitsBeforeCursor, digits.length);
+
+    const formatted = formatPhoneDisplay(digits, digits.length > previousDigits.length);
+
+    let cursorOffset = formatted.length;
+    if (digitsBeforeCursor < digits.length) {
+      cursorOffset = 0;
+      let seen = 0;
+      for (let i = 0; i < formatted.length; i += 1) {
+        if (formatted[i] !== '-') seen += 1;
+        if (seen === digitsBeforeCursor) {
+          cursorOffset = i + 1;
+          break;
+        }
+      }
+    }
+
+    pendingPhoneCursorRef.current = cursorOffset;
+    setField('phone', formatted);
+  }
+
   function validate() {
     const next = {};
 
     if (!form.roleId) next.roleId = `กรุณาใส่${fieldLabel('roleId')}`;
     if (!form.firstname.trim()) next.firstname = `กรุณาใส่${fieldLabel('firstname')}`;
     if (!form.lastname.trim()) next.lastname = `กรุณาใส่${fieldLabel('lastname')}`;
-    if (!form.phone.trim()) {
+    const phoneDigits = phoneDigitsOnly(form.phone);
+    if (!phoneDigits) {
       next.phone = `กรุณาใส่${fieldLabel('phone')}`;
     } else {
-      const phoneError = validatePhone(form.phone.trim());
+      const phoneError = validatePhone(phoneDigits);
       if (phoneError) next.phone = phoneError;
     }
 
@@ -209,7 +258,7 @@ function PersonnelFormModal({
         roleId,
         firstname: form.firstname.trim(),
         lastname: form.lastname.trim(),
-        phone: form.phone.trim(),
+        phone: phoneDigitsOnly(form.phone),
         username: form.username.trim(),
         password: form.password,
         roomNumber: form.roomNumber.trim(),
@@ -353,9 +402,12 @@ function PersonnelFormModal({
         <div className="flex flex-col gap-2">
           <label className="text-sm font-bold">เบอร์โทรศัพท์</label>
           <input
+            ref={phoneInputRef}
             type="text"
+            inputMode="tel"
+            placeholder="0xx-xxx-xxxx"
             value={form.phone}
-            onChange={(e) => setField('phone', e.target.value)}
+            onChange={handlePhoneChange}
             className={inputClass('phone')}
           />
           {errors.phone && <p className="text-xs text-red-600">{errors.phone}</p>}

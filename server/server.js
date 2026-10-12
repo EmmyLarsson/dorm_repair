@@ -73,6 +73,20 @@ const requireRole = (allowedRoleIds) => (req, res, next) => {
     next();
 }
 
+// ตรวจที่ขอบ API ไม่ใช่แค่ฟอร์มฝั่ง client — รับเฉพาะเบอร์มือถือตัวเลขล้วน 10 หลักที่ขึ้นต้น 06/08/09
+// (คอลัมน์ person.phone เป็น varchar(10) เก็บขีดไม่ได้ ฝั่ง client ตัดขีดออกก่อนส่งแล้ว)
+const requireValidPhone = (req, res, next) => {
+    const phone = req.body.phone;
+    if (typeof phone !== 'string' || !/^0[689]\d{8}$/.test(phone)) {
+        return res.json({
+            isError: true,
+            data: "",
+            errorMessage: "หมายเลขโทรศัพท์ไม่ถูกต้อง"
+        });
+    }
+    next();
+}
+
 app.get("/api/users", (req, res) => {
     var response = {
         isError: true,
@@ -170,7 +184,7 @@ app.get("/api/profile/me", checkAccessToken, async (req, res) => {
     res.json(response);
 });
 
-app.post("/api/profile/update", checkAccessToken, async (req, res) => {
+app.post("/api/profile/update", checkAccessToken, requireValidPhone, async (req, res) => {
     const accountId = req.decoded.user_id;
     const phone = req.body.phone;
     const roomNumber = req.body.room_number;
@@ -303,7 +317,7 @@ app.get("/api/repair_request/get_all_by_user", checkAccessToken, async (req, res
     res.json(response);
 });
 
-app.post("/api/repair_request/create", checkAccessToken, async (req, res) => {
+app.post("/api/repair_request/create", checkAccessToken, requireValidPhone, async (req, res) => {
     const studentId = req.decoded.user_id;
     const name = req.body.name;
     const phone = req.body.phone;
@@ -363,7 +377,7 @@ app.get("/api/repair_request/:request_id/photos", checkAccessToken, requireCaseA
     res.json(response);
 });
 
-app.post("/api/repair_request/update", checkAccessToken, async (req, res) => {
+app.post("/api/repair_request/update", checkAccessToken, requireValidPhone, async (req, res) => {
     const requestId = req.body.request_id;
     const studentId = req.decoded.user_id;
     const name = req.body.name;
@@ -975,25 +989,25 @@ app.get("/api/personnel/get_all", checkAccessToken, requireRole([2]), async (req
     res.json(response);
 });
 
-app.post("/api/personnel/create_student", checkAccessToken, requireRole([2]), async (req, res) => {
+app.post("/api/personnel/create_student", checkAccessToken, requireRole([2]), requireValidPhone, async (req, res) => {
     const { firstname, lastname, phone, username, password, room_number } = req.body;
     const response = await personnel.createStudent(firstname, lastname, phone, username, password, room_number);
     res.json(response);
 });
 
-app.post("/api/personnel/create_moderator", checkAccessToken, requireRole([2]), async (req, res) => {
+app.post("/api/personnel/create_moderator", checkAccessToken, requireRole([2]), requireValidPhone, async (req, res) => {
     const { firstname, lastname, phone, username, password, position_id } = req.body;
     const response = await personnel.createModerator(firstname, lastname, phone, username, password, position_id);
     res.json(response);
 });
 
-app.post("/api/personnel/create_technician", checkAccessToken, requireRole([2]), async (req, res) => {
+app.post("/api/personnel/create_technician", checkAccessToken, requireRole([2]), requireValidPhone, async (req, res) => {
     const { firstname, lastname, phone, specialty_id } = req.body;
     const response = await personnel.createTechnician(firstname, lastname, phone, specialty_id);
     res.json(response);
 });
 
-app.post("/api/personnel/update_student", checkAccessToken, requireRole([2]), async (req, res) => {
+app.post("/api/personnel/update_student", checkAccessToken, requireRole([2]), requireValidPhone, async (req, res) => {
     // username/password ไม่บังคับ — ส่งมาก็ต่อเมื่อเจ้าหน้าที่ตั้งใจจะเปลี่ยนค่านั้นจริงๆ (เว้นว่างไว้ =
     // ไม่แตะบัญชีเดิมเลย) เพราะแต่ก่อนฟังก์ชันนี้ไม่เคยรับ/อัปเดตตาราง account เลยสักบรรทัด
     const { person_id, firstname, lastname, phone, room_number, username, password } = req.body;
@@ -1001,13 +1015,13 @@ app.post("/api/personnel/update_student", checkAccessToken, requireRole([2]), as
     res.json(response);
 });
 
-app.post("/api/personnel/update_moderator", checkAccessToken, requireRole([2]), async (req, res) => {
+app.post("/api/personnel/update_moderator", checkAccessToken, requireRole([2]), requireValidPhone, async (req, res) => {
     const { person_id, firstname, lastname, phone, position_id, username, password } = req.body;
     const response = await personnel.updateModerator(person_id, firstname, lastname, phone, position_id, username, password);
     res.json(response);
 });
 
-app.post("/api/personnel/update_technician", checkAccessToken, requireRole([2]), async (req, res) => {
+app.post("/api/personnel/update_technician", checkAccessToken, requireRole([2]), requireValidPhone, async (req, res) => {
     const { person_id, firstname, lastname, phone, specialty_id } = req.body;
     const response = await personnel.updateTechnician(person_id, firstname, lastname, phone, specialty_id);
     res.json(response);

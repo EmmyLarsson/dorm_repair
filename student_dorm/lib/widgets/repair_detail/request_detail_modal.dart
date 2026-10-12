@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:student_dorm/color/colors.dart';
 import 'package:student_dorm/models/repair_detail_model.dart' show RepairDetail, RepairPhoto;
 import 'package:student_dorm/screen/photo_viewer_screen.dart';
+import 'package:student_dorm/utils/phone_formatter.dart';
 import 'package:student_dorm/widgets/repair_detail/repair_timeline.dart' show formatDateShort, kRadiusLg;
 
 /// เปิด modal "รายละเอียดคำร้องแจ้งซ่อม" แบบ bottom sheet
@@ -86,7 +87,7 @@ class RequestDetailModal extends StatelessWidget {
                   _DetailCard(
                     rows: [
                       _DetailRow(icon: Icons.person, label: 'ชื่อผู้แจ้ง', value: detail.studentName),
-                      _DetailRow(icon: Icons.call, label: 'เบอร์โทรติดต่อ', value: detail.contactPhone),
+                      _DetailRow(icon: Icons.call, label: 'เบอร์โทรติดต่อ', value: formatPhoneForDisplay(detail.contactPhone)),
                       _DetailRow(icon: Icons.meeting_room, label: 'หมายเลขห้อง', value: detail.roomNumber, isLast: true),
                     ],
                   ),

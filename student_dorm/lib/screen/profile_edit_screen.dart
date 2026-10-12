@@ -8,6 +8,7 @@ import 'package:student_dorm/utils/app_api.dart';
 import 'package:student_dorm/widgets/profile_edit/profile_avatar_picker.dart';
 import 'package:student_dorm/widgets/profile_edit/profile_personal_info_card.dart';
 import 'package:student_dorm/utils/validators.dart';
+import 'package:student_dorm/utils/phone_formatter.dart';
 
 class ProfileEditScreen extends StatefulWidget {
   const ProfileEditScreen({super.key, required this.profile});
@@ -36,7 +37,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   @override
   void initState() {
     super.initState();
-    _phoneController = TextEditingController(text: widget.profile.phone);
+    _phoneController = TextEditingController(text: formatPhoneDisplay(widget.profile.phone));
     _roomController = TextEditingController(text: widget.profile.roomNumber);
   }
 
@@ -49,7 +50,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
   bool _validateForm() {
     setState(() {
-      final phoneValue = _phoneController.text.trim();
+      final phoneValue = phoneDigitsOnly(_phoneController.text);
       if (phoneValue.isEmpty) {
         _errPhone = true;
         _phoneErrorText = null; // ใช้ข้อความ default "กรุณากรอกเบอร์โทรติดต่อ"
@@ -72,7 +73,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
   Future<(bool, String)> _doUpdateProfile() async {
     final response = await AppAPI.post('/profile/update', {
-      'phone': _phoneController.text.trim(),
+      'phone': phoneDigitsOnly(_phoneController.text),
       'room_number': _roomController.text.trim(),
     });
     final Map<String, dynamic> json = jsonDecode(response.body);

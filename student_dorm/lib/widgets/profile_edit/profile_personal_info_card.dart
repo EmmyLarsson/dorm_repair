@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:student_dorm/color/colors.dart';
+import 'package:student_dorm/utils/phone_formatter.dart';
 
 /// การ์ด "ข้อมูลส่วนบุคคล" ในหน้าแก้ไขโปรไฟล์
 /// ล็อก: ชื่อ, นามสกุล, รหัสนักศึกษา (เจ้าหน้าที่หอพักเป็นผู้แก้ไขในอนาคต)
@@ -103,6 +105,7 @@ class ProfilePersonalInfoCard extends StatelessWidget {
             isError: errorPhone,
             errorText: phoneErrorText ?? 'กรุณากรอกเบอร์โทรติดต่อ',
             keyboardType: TextInputType.phone,
+            inputFormatters: const [PhoneInputFormatter()],
             onChanged: onPhoneChanged,
           ),
           const SizedBox(height: 14),
@@ -167,6 +170,7 @@ class ProfilePersonalInfoCard extends StatelessWidget {
     required String errorText,
     required ValueChanged<String> onChanged,
     TextInputType? keyboardType,
+    List<TextInputFormatter>? inputFormatters,
   }) {
     final Color baseBorder = isError ? kRsError : kRsFieldBorder;
 
@@ -178,6 +182,7 @@ class ProfilePersonalInfoCard extends StatelessWidget {
         TextField(
           controller: controller,
           keyboardType: keyboardType,
+          inputFormatters: inputFormatters,
           style: GoogleFonts.sarabun(fontSize: 15, color: kRsOnSurface),
           decoration: InputDecoration(
             hintText: hint,

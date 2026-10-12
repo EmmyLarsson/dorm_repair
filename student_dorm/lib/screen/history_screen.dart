@@ -233,7 +233,8 @@ class _HistoryPageState extends State<HistoryPage> {
 
     final widgets = <Widget>[];
     groups.forEach((day, items) {
-      widgets.add(GroupHeader(label: _thaiDayLabel(day, isToday: day == today), color: kNavyMid, count: items.length));
+      // จุดหน้าวันที่ใช้สีเหลืองอมส้ม — สีน้ำเงินเดิมไปซ้ำกับสีของสถานะ/ปุ่มอื่น ทำให้ดูสับสนว่าเป็นสถานะอะไร
+      widgets.add(GroupHeader(label: _thaiDayLabel(day, isToday: day == today), color: kAmberDark, count: items.length));
       widgets.addAll(items.map((c) => RepairInfoCard(item: c, onReturn: _fetchData)));
     });
     return widgets;

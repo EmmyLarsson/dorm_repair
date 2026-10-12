@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:student_dorm/color/colors.dart';
+import 'package:student_dorm/utils/phone_formatter.dart';
 
 class PersonalInfoForm extends StatelessWidget {
   const PersonalInfoForm({
@@ -110,6 +112,7 @@ class PersonalInfoForm extends StatelessWidget {
             errorText: phoneErrorText ?? 'กรุณากรอกเบอร์โทรติดต่อ',
             readOnly: isSaved,
             keyboardType: TextInputType.phone,
+            inputFormatters: const [PhoneInputFormatter()],
             onChanged: onPhoneChanged,
           ),
           const SizedBox(height: 14),
@@ -205,6 +208,7 @@ class PersonalInfoForm extends StatelessWidget {
     required ValueChanged<String> onChanged,
     bool readOnly = false,
     TextInputType? keyboardType,
+    List<TextInputFormatter>? inputFormatters,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -215,6 +219,7 @@ class PersonalInfoForm extends StatelessWidget {
           controller: controller,
           readOnly: readOnly,
           keyboardType: keyboardType,
+          inputFormatters: inputFormatters,
           style: GoogleFonts.sarabun(
             fontSize: 15,
             color: readOnly
