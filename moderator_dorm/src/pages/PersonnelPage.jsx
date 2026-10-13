@@ -114,6 +114,11 @@ async function updatePersonnel(values) {
   return response.json();
 }
 
+async function uploadPersonnelPhoto(personId, file) {
+  const response = await AppAPI.postFormData(`/personnel/${personId}/photo`, { file, fieldName: 'photo' });
+  return response.json();
+}
+
 async function deletePersonnel(personIds) {
   const response = await AppAPI.post('/personnel/delete', {
     person_ids: Array.isArray(personIds) ? personIds : [personIds],
@@ -219,8 +224,24 @@ function PersonnelPage() {
     const response = values.mode === 'edit' ? await updatePersonnel(values) : await createPersonnel(values);
 
     if (!response.isError) {
+      // ข้อมูลบุคคลถูกบันทึกไปแล้วตรงนี้ — ถ้ารูปอัปโหลดไม่สำเร็จห้ามคืนค่า isError ให้โมดัลค้างไว้ให้กดบันทึกซ้ำ
+      // (ตอนเพิ่มคนใหม่จะสร้างซ้ำ) แจ้งผ่าน toast แทน แล้วเปิดแก้ไขเพื่ออัปโหลดรูปใหม่ภายหลังได้
+      let photoErrorMessage = '';
+      if (values.profileImageFile) {
+        const personId = values.mode === 'edit' ? values.personId : response.data?.person_id;
+        try {
+          const photoResponse = await uploadPersonnelPhoto(personId, values.profileImageFile);
+          if (photoResponse.isError) {
+            photoErrorMessage = photoResponse.errorMessage || 'อัปโหลดรูปโปรไฟล์ไม่สำเร็จ';
+          }
+        } catch {
+          photoErrorMessage = 'อัปโหลดรูปโปรไฟล์ไม่สำเร็จ';
+        }
+      }
+
       closeFormModal();
-      showToast(values.mode === 'edit' ? 'บันทึกข้อมูลบุคลากรเรียบร้อย' : 'เพิ่มข้อมูลบุคลากรเรียบร้อย');
+      const savedMessage = values.mode === 'edit' ? 'บันทึกข้อมูลบุคลากรเรียบร้อย' : 'เพิ่มข้อมูลบุคลากรเรียบร้อย';
+      showToast(photoErrorMessage ? `${savedMessage} แต่${photoErrorMessage}` : savedMessage);
       await fetchAll();
     }
 

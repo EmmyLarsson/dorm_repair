@@ -13,7 +13,20 @@ import 'package:student_dorm/utils/app_api.dart';
 /// เป็น StatefulWidget เพราะต้อง track รูปปัจจุบัน + สถานะกำลังอัปโหลด
 /// ที่เปลี่ยนจากการกระทำของผู้ใช้เองภายใน widget นี้
 class ProfileAvatarPicker extends StatefulWidget {
-  const ProfileAvatarPicker({super.key, this.onUploaded});
+  const ProfileAvatarPicker({
+    super.key,
+    required this.personId,
+    this.initialImageUrl,
+    this.onUploaded,
+  });
+
+  /// person_id ของตัวเอง — backend ใช้เส้นทางอัปโหลดเดียวกับที่เจ้าหน้าที่ตั้งรูปให้คนอื่น
+  /// และอนุญาตให้นักศึกษาใช้ได้เฉพาะ person_id ของบัญชีที่ล็อกอินอยู่
+  final int personId;
+
+  /// รูปล่าสุดจาก server (StudentProfile.imageUrl) — ใช้ก่อนค่าที่แคชไว้ตอนล็อกอิน เพราะแคชจะเก่าถ้า
+  /// เจ้าหน้าที่ตั้งหรือเปลี่ยนรูปให้ทีหลัง
+  final String? initialImageUrl;
 
   /// เรียกเมื่ออัปโหลดรูปสำเร็จ ให้หน้าที่เรียกใช้รู้ว่าต้อง refresh ข้อมูลตอนย้อนกลับ
   final VoidCallback? onUploaded;
@@ -34,7 +47,10 @@ class _ProfileAvatarPickerState extends State<ProfileAvatarPicker> {
 
   Future<void> _loadCurrentImage() async {
     final prefs = await SharedPreferences.getInstance();
-    final imageUrl = prefs.getString('image_url');
+    final serverImageUrl = widget.initialImageUrl;
+    final imageUrl = (serverImageUrl != null && serverImageUrl.isNotEmpty)
+        ? serverImageUrl
+        : prefs.getString('image_url');
     if (!mounted) return;
 
     setState(() {
@@ -109,7 +125,7 @@ class _ProfileAvatarPickerState extends State<ProfileAvatarPicker> {
 
     try {
       final response = await AppAPI.uploadFiles(
-        '/profile/photo',
+        '/personnel/${widget.personId}/photo',
         [file],
         fieldName: 'photo',
       );

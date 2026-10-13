@@ -5,6 +5,28 @@ async function generatePersonNo(conn, personId) {
     await conn.query(sql, [personId, personId]);
 }
 
+// คอลัมน์ของ person ที่แก้ผ่านฟังก์ชันร่วมด้านล่างได้ — กำหนดตายตัวเพื่อไม่ให้ชื่อคอลัมน์ใน SQL มาจากอินพุตของผู้ใช้
+const EDITABLE_PERSON_COLUMNS = ['firstname', 'lastname', 'phone'];
+
+// ใช้ร่วมกัน 4 จุด: เจ้าหน้าที่แก้ให้ (นักศึกษา/เจ้าหน้าที่/ช่าง) และนักศึกษาแก้เบอร์โทรตัวเอง
+// (userAccountModel.updateStudentProfile) รับ conn จากผู้เรียกเพื่อให้อยู่ใน transaction เดียวกับขั้นตอนอื่นของผู้เรียก
+// อัปเดตเฉพาะคอลัมน์ที่มี key ใน fields — นักศึกษาแก้เองส่งแค่ { phone } ชื่อ/นามสกุลจึงไม่ถูกแตะ
+// (สิทธิ์ว่าใครแก้ฟิลด์ไหนได้ ตัดสินที่ผู้เรียก ไม่ใช่ที่นี่)
+async function updatePersonFields(conn, personId, fields) {
+    const columns = EDITABLE_PERSON_COLUMNS.filter((column) => column in fields);
+    if (columns.length === 0) return;
+
+    const setClause = columns.map((column) => column + " = ?").join(", ");
+    await conn.query(
+        "UPDATE person SET " + setClause + " WHERE person_id = ?",
+        [...columns.map((column) => fields[column]), personId]
+    );
+}
+
+async function updateStudentRoom(conn, personId, roomNumber) {
+    await conn.query("UPDATE student SET room_number = ? WHERE person_id = ?", [roomNumber, personId]);
+}
+
 async function isUsernameTaken(conn, username) {
     var rows = await conn.query("SELECT 1 FROM account WHERE username = ?", [username]);
     return rows.length > 0;
@@ -273,15 +295,8 @@ module.exports = {
             conn = await pool.getConnection();
             await conn.beginTransaction();
 
-            await conn.query(
-                "UPDATE person SET firstname = ?, lastname = ?, phone = ? WHERE person_id = ?",
-                [firstname, lastname, phone, personId]
-            );
-
-            await conn.query(
-                "UPDATE student SET room_number = ? WHERE person_id = ?",
-                [roomNumber, personId]
-            );
+            await updatePersonFields(conn, personId, { firstname, lastname, phone });
+            await updateStudentRoom(conn, personId, roomNumber);
 
             const credentialError = await updateAccountCredentials(conn, personId, username, password);
             if (credentialError) {
@@ -314,10 +329,7 @@ module.exports = {
             conn = await pool.getConnection();
             await conn.beginTransaction();
 
-            await conn.query(
-                "UPDATE person SET firstname = ?, lastname = ?, phone = ? WHERE person_id = ?",
-                [firstname, lastname, phone, personId]
-            );
+            await updatePersonFields(conn, personId, { firstname, lastname, phone });
 
             await conn.query(
                 "UPDATE moderator SET position_id = ? WHERE person_id = ?",
@@ -355,10 +367,7 @@ module.exports = {
             conn = await pool.getConnection();
             await conn.beginTransaction();
 
-            await conn.query(
-                "UPDATE person SET firstname = ?, lastname = ?, phone = ? WHERE person_id = ?",
-                [firstname, lastname, phone, personId]
-            );
+            await updatePersonFields(conn, personId, { firstname, lastname, phone });
 
             await conn.query(
                 "UPDATE technician SET specialty_id = ? WHERE person_id = ?",
@@ -372,6 +381,39 @@ module.exports = {
             if (conn)
                 await conn.rollback();
 
+            result = { isError: true, data: "", errorMessage: error.message };
+        } finally {
+            if (conn)
+                conn.release();
+
+            return result;
+        }
+    },
+
+    // ตั้งรูปโปรไฟล์ตาม person_id (ไม่ผ่านตาราง account) เพราะช่างไม่มีบัญชี — เป็นฟังก์ชันเดียวที่ใช้ทั้ง
+    // เจ้าหน้าที่ตั้งรูปให้คนอื่นและนักศึกษาเปลี่ยนรูปตัวเอง (สิทธิ์ตรวจที่ requireModeratorOrSelf ใน server.js)
+    // คืน previous_url ให้ผู้เรียกลบไฟล์เก่าออกจาก disk (model ทำแค่ query)
+    updateProfileImage: async (personId, photoPath) => {
+        let conn;
+        let result;
+
+        try {
+            conn = await pool.getConnection();
+
+            const rows = await conn.query("SELECT profile_image FROM person WHERE person_id = ?", [personId]);
+            if (!rows[0]) {
+                result = { isError: true, data: "", errorMessage: "ไม่พบข้อมูลบุคลากร" };
+                return;
+            }
+
+            await conn.query("UPDATE person SET profile_image = ? WHERE person_id = ?", [photoPath, personId]);
+
+            result = {
+                isError: false,
+                data: { photo_url: photoPath, previous_url: rows[0].profile_image },
+                errorMessage: ""
+            };
+        } catch (error) {
             result = { isError: true, data: "", errorMessage: error.message };
         } finally {
             if (conn)
@@ -422,3 +464,7 @@ module.exports = {
         }
     },
 }
+
+// รับ conn จากผู้เรียก (ต่างจากฟังก์ชันด้านบนที่เปิด connection เอง) — userAccountModel.updateStudentProfile ใช้ร่วมกัน
+module.exports.updatePersonFields = updatePersonFields;
+module.exports.updateStudentRoom = updateStudentRoom;

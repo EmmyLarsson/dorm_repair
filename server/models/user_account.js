@@ -1,5 +1,6 @@
 const pool = require('../libs/db_pool');
 const dateUtils = require('../libs/date_utils');
+const personnelModel = require('./personnel');
 
 module.exports = {
     getUserAccountById: async (accountId) => {
@@ -38,7 +39,7 @@ module.exports = {
         try {
             conn = await pool.getConnection();
 
-            var sql = "SELECT a.username AS student_no, p.firstname, p.lastname, p.phone, s.room_number, p.profile_image AS image_url " +
+            var sql = "SELECT p.person_id, a.username AS student_no, p.firstname, p.lastname, p.phone, s.room_number, p.profile_image AS image_url " +
                       "FROM account a " +
                       "INNER JOIN person p ON a.person_id = p.person_id " +
                       "INNER JOIN student s ON s.person_id = p.person_id " +
@@ -49,6 +50,35 @@ module.exports = {
             result = {
                 isError: false,
                 data: rows[0] ?? null,
+                errorMessage: ""
+            };
+        } catch (error) {
+            result = {
+                isError: true,
+                data: "",
+                errorMessage: error.message
+            };
+        } finally {
+            if (conn)
+                conn.release();
+
+            return result;
+        }
+    },
+    // ใช้ตรวจว่า person_id ที่ส่งมาเป็นของบัญชีที่ล็อกอินอยู่ไหม (token เก็บแค่ account_id ไม่มี person_id)
+    // data = person_id หรือ null ถ้าไม่พบบัญชี
+    getPersonIdByAccountId: async (accountId) => {
+        let conn;
+        let result;
+
+        try {
+            conn = await pool.getConnection();
+
+            var rows = await conn.query("SELECT person_id FROM account WHERE account_id = ?", [accountId]);
+
+            result = {
+                isError: false,
+                data: rows[0] ? Number(rows[0].person_id) : null,
                 errorMessage: ""
             };
         } catch (error) {
@@ -145,21 +175,18 @@ module.exports = {
             conn = await pool.getConnection();
             await conn.beginTransaction();
 
-            var updatePhoneSql =
-                "UPDATE person p " +
-                "JOIN account a ON a.person_id = p.person_id " +
-                "SET p.phone = ? " +
-                "WHERE a.account_id = ?";
+            // token เก็บแค่ account_id จึงหา person_id ก่อน แล้วใช้ฟังก์ชันร่วมกับที่เจ้าหน้าที่แก้ให้ (personnel.js)
+            // นักศึกษาแก้เองได้เฉพาะเบอร์โทรกับห้อง จึงส่งแค่ { phone } ชื่อ/นามสกุลไม่ถูกแตะ
+            var personRows = await conn.query("SELECT person_id FROM account WHERE account_id = ?", [accountId]);
+            if (!personRows[0]) {
+                await conn.rollback();
+                result = { isError: true, data: "", errorMessage: "ไม่พบบัญชีผู้ใช้" };
+                return;
+            }
+            var personId = personRows[0].person_id;
 
-            await conn.query(updatePhoneSql, [phone, accountId]);
-
-            var updateRoomSql =
-                "UPDATE student s " +
-                "JOIN account a ON a.person_id = s.person_id " +
-                "SET s.room_number = ? " +
-                "WHERE a.account_id = ?";
-
-            await conn.query(updateRoomSql, [roomNumber, accountId]);
+            await personnelModel.updatePersonFields(conn, personId, { phone });
+            await personnelModel.updateStudentRoom(conn, personId, roomNumber);
 
             await conn.commit();
 
@@ -173,39 +200,6 @@ module.exports = {
                 await conn.rollback();
             }
 
-            result = {
-                isError: true,
-                data: "",
-                errorMessage: error.message
-            };
-        } finally {
-            if (conn)
-                conn.release();
-
-            return result;
-        }
-    },
-    updateProfileImage: async (accountId, photoPath) => {
-        let conn;
-        let result;
-
-        try {
-            conn = await pool.getConnection();
-
-            var sql =
-                "UPDATE person p " +
-                "JOIN account a ON a.person_id = p.person_id " +
-                "SET p.profile_image = ? " +
-                "WHERE a.account_id = ?";
-
-            await conn.query(sql, [photoPath, accountId]);
-
-            result = {
-                isError: false,
-                data: photoPath,
-                errorMessage: ""
-            };
-        } catch (error) {
             result = {
                 isError: true,
                 data: "",

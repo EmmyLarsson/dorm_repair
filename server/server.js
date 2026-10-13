@@ -73,6 +73,26 @@ const requireRole = (allowedRoleIds) => (req, res, next) => {
     next();
 }
 
+// ใช้กับ route ที่ระบุคนด้วย :person_id — เจ้าหน้าที่ (role 2) ทำกับใครก็ได้ ส่วนบทบาทอื่นทำได้เฉพาะ
+// person_id ของบัญชีตัวเอง ต้องวางก่อน multer เสมอ ไม่งั้นคำขอที่ไม่มีสิทธิ์จะทิ้งไฟล์ค้างบน disk
+const requireModeratorOrSelf = async (req, res, next) => {
+    if (req.decoded?.role_id === 2) {
+        return next();
+    }
+
+    const personId = parseInt(req.params.person_id, 10);
+    const ownPerson = await userAccountModel.getPersonIdByAccountId(req.decoded?.user_id);
+
+    if (ownPerson.isError || !Number.isInteger(personId) || personId !== ownPerson.data) {
+        return res.json({
+            isError: true,
+            data: "",
+            errorMessage: "คุณไม่มีสิทธิ์เข้าถึงข้อมูลนี้"
+        });
+    }
+    next();
+}
+
 // ตรวจที่ขอบ API ไม่ใช่แค่ฟอร์มฝั่ง client — รับเฉพาะเบอร์มือถือตัวเลขล้วน 10 หลักที่ขึ้นต้น 06/08/09
 // (คอลัมน์ person.phone เป็น varchar(10) เก็บขีดไม่ได้ ฝั่ง client ตัดขีดออกก่อนส่งแล้ว)
 const requireValidPhone = (req, res, next) => {
@@ -190,25 +210,6 @@ app.post("/api/profile/update", checkAccessToken, requireValidPhone, async (req,
     const roomNumber = req.body.room_number;
 
     const response = await userAccountModel.updateStudentProfile(accountId, phone, roomNumber);
-    res.json(response);
-});
-
-app.post("/api/profile/photo", checkAccessToken, (req, res, next) => {
-    uploadProfilePhoto.single('photo')(req, res, (err) => {
-        if (err) {
-            return res.json({ isError: true, data: "", errorMessage: err.message || "อัปโหลดรูปภาพไม่สำเร็จ" });
-        }
-        next();
-    });
-}, async (req, res) => {
-    const accountId = req.decoded.user_id;
-
-    if (!req.file) {
-        return res.json({ isError: true, data: "", errorMessage: "กรุณาแนบไฟล์รูปภาพ" });
-    }
-
-    const photoPath = `/uploads/profile_photos/${req.file.filename}`;
-    const response = await userAccountModel.updateProfileImage(accountId, photoPath);
     res.json(response);
 });
 
@@ -1025,6 +1026,47 @@ app.post("/api/personnel/update_technician", checkAccessToken, requireRole([2]),
     const { person_id, firstname, lastname, phone, specialty_id } = req.body;
     const response = await personnel.updateTechnician(person_id, firstname, lastname, phone, specialty_id);
     res.json(response);
+});
+
+// ตั้งรูปโปรไฟล์ตาม person_id — เจ้าหน้าที่ตั้งให้ได้ทุกบทบาท (นักศึกษา/เจ้าหน้าที่/ช่าง ซึ่งช่างไม่มีบัญชี
+// จึงต้องระบุด้วย person_id) ส่วนนักศึกษาเปลี่ยนรูปตัวเองผ่าน route เดียวกันนี้ด้วย person_id ของตัวเอง
+// (แทน /api/profile/photo เดิมที่หาคนจาก account_id) เพื่อให้มีเส้นทางอัปโหลดรูปเส้นเดียว
+app.post("/api/personnel/:person_id/photo", checkAccessToken, requireModeratorOrSelf, (req, res, next) => {
+    uploadProfilePhoto.single('photo')(req, res, (err) => {
+        if (err) {
+            return res.json({ isError: true, data: "", errorMessage: err.message || "อัปโหลดรูปภาพไม่สำเร็จ" });
+        }
+        next();
+    });
+}, async (req, res) => {
+    const personId = parseInt(req.params.person_id, 10);
+
+    // ไฟล์ถูกเขียนลง disk โดย multer ไปแล้วก่อนถึงตรงนี้ จึงต้องลบทิ้งเองถ้าปฏิเสธคำขอ ไม่ให้เหลือไฟล์ค้าง
+    const discardUploadedFile = () => {
+        if (req.file) fs.unlink(req.file.path, () => {});
+    };
+
+    if (!Number.isInteger(personId) || personId <= 0) {
+        discardUploadedFile();
+        return res.json({ isError: true, data: "", errorMessage: "รหัสบุคลากรไม่ถูกต้อง" });
+    }
+    if (!req.file) {
+        return res.json({ isError: true, data: "", errorMessage: "กรุณาแนบไฟล์รูปภาพ" });
+    }
+
+    const photoPath = `/uploads/profile_photos/${req.file.filename}`;
+    const response = await personnel.updateProfileImage(personId, photoPath);
+
+    if (response.isError) {
+        discardUploadedFile();
+        return res.json(response);
+    }
+
+    if (response.data.previous_url) {
+        fs.unlink(path.join(__dirname, response.data.previous_url), () => {});
+    }
+
+    res.json({ isError: false, data: response.data.photo_url, errorMessage: "" });
 });
 
 app.post("/api/personnel/delete", checkAccessToken, requireRole([2]), async (req, res) => {

@@ -204,6 +204,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                         children: [
                           Center(
                             child: ProfileAvatarPicker(
+                              personId: widget.profile.personId,
+                              initialImageUrl: widget.profile.imageUrl,
                               onUploaded: () => _didSave = true,
                             ),
                           ),

@@ -86,6 +86,7 @@ function PersonnelFormModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [profileImagePreview, setProfileImagePreview] = useState(null);
+  const [profileImageFile, setProfileImageFile] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
   const profileImageInputRef = useRef(null);
   const phoneInputRef = useRef(null);
@@ -125,13 +126,16 @@ function PersonnelFormModal({
     }
     setErrors({});
     setSubmitError('');
+    setProfileImageFile(null);
   }, [isOpen, mode, person]);
 
-  // TODO(backend): ตอนนี้เก็บรูปไว้แค่ preview ฝั่ง client เท่านั้น
-  // อนาคตจะอัปโหลดจริงผ่าน multer แล้วเก็บ path ลงคอลัมน์ person.profile_image
+  // เก็บไฟล์ไว้ส่งตอนกดบันทึก — อัปโหลดเป็นอีกคำขอแยกหลังบันทึกข้อมูลสำเร็จ เพราะตอนเพิ่มคนใหม่ยังไม่มี
+  // person_id (backend ตั้งรูปตาม person_id) ส่วน preview ใช้แค่ให้เห็นภาพก่อนบันทึก
   function handleProfileImageChange(e) {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    setProfileImageFile(file);
 
     const reader = new FileReader();
     reader.onload = () => setProfileImagePreview(reader.result);
@@ -264,6 +268,7 @@ function PersonnelFormModal({
         roomNumber: form.roomNumber.trim(),
         positionId: form.positionId ? Number(form.positionId) : null,
         specialtyId: form.specialtyId ? Number(form.specialtyId) : null,
+        profileImageFile,
       });
 
       if (response?.isError) {
@@ -350,7 +355,7 @@ function PersonnelFormModal({
           <input
             ref={profileImageInputRef}
             type="file"
-            accept="image/*"
+            accept="image/jpeg,image/webp"
             onChange={handleProfileImageChange}
             className="hidden"
           />

@@ -351,7 +351,9 @@ const THAI_WEEKDAYS = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
 function addDaysToDateStr(dateStr, days) {
   const d = new Date(dateStr + 'T00:00:00');
   d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  // ประกอบวันที่ตามเวลาเครื่องเอง — toISOString() แปลงเป็น UTC ทำให้เขตเวลา UTC+7 ถอยหลังไป 1 วัน
+  // (เที่ยงคืนวันที่ 12 กลายเป็น 11) มินิปฏิทินจึงเริ่มจาก "เมื่อวาน" และเลือกวันที่ผ่านไปแล้วได้
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 const THAI_MONTHS_SHORT = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
