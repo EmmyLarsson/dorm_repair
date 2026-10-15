@@ -592,12 +592,13 @@ class _EmptyState extends StatelessWidget {
           children: [
             const Icon(Icons.search_off, size: 72, color: Color(0xFFD1D5DB)),
             const SizedBox(height: 14),
+            // สีตัวอักษรตามหน้าหลัก (kGray700 / kGray500) ให้ empty state สองหน้าเหมือนกัน
             Text('ไม่พบรายการที่ค้นหา',
-                style: GoogleFonts.sarabun(fontSize: 16, fontWeight: FontWeight.w700, color: const Color(0xFF6B7280))),
+                style: GoogleFonts.sarabun(fontSize: 16, fontWeight: FontWeight.w700, color: kGray700)),
             const SizedBox(height: 6),
             Text('ลองพิมพ์รหัส Case หรือชื่อรายการซ่อมใหม่อีกครั้ง',
                 textAlign: TextAlign.center,
-                style: GoogleFonts.sarabun(fontSize: 13.5, color: const Color(0xFF9CA3AF))),
+                style: GoogleFonts.sarabun(fontSize: 13.5, color: kGray500)),
           ],
         ),
       ),

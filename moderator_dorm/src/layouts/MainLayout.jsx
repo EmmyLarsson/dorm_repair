@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import {NavLink, Outlet, useNavigate,} from "react-router-dom";
+import {NavLink, Outlet, useLocation, useNavigate,} from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { AppAPI } from "../utils/appApi";
+import { photoFullUrl } from "../utils/photoUtil";
 import dormLogo from "../assets/dorm_logo.jpg";
 
 // แต่ละประเภทแจ้งเตือน → modal ที่ต้องเปิดในหน้าจัดการงานซ่อม (ของเดิมที่มีอยู่แล้วทั้งหมด ไม่สร้าง popup ใหม่)
@@ -30,6 +31,18 @@ async function getNotifications() {
     notifications: Array.isArray(json.data?.notifications) ? json.data.notifications : [],
     unreadCount: json.data?.unreadCount ?? 0,
   };
+}
+
+// โปรไฟล์ของเจ้าหน้าที่ที่ล็อกอินอยู่ (ชื่อ/ตำแหน่ง/รูป) — ล้มเหลวคืน null เพื่อให้ topbar ใช้ข้อความ
+// สำรองแทน ไม่ให้ทั้งหน้าเสียเพราะแค่โหลดชื่อไม่ได้
+async function getStaffProfile() {
+  try {
+    const response = await AppAPI.get('/moderator/me');
+    const json = await response.json();
+    return json.isError ? null : json.data;
+  } catch {
+    return null;
+  }
 }
 
 async function markNotificationRead(notificationId) {
@@ -116,7 +129,12 @@ const menuItems = [
 
 export default function MainLayout() {
   const navigate = useNavigate();
+  const location = useLocation();
 
+  // { firstname, lastname, position_name, image_url } ของผู้ล็อกอิน (null = ยังโหลดไม่ได้ ใช้ข้อความสำรอง)
+  const [staffProfile, setStaffProfile] = useState(null);
+  // รูปโหลดไม่ขึ้น (ไฟล์หาย/path ผิด) → กลับไปใช้ไอคอนคนแทนวงกลมว่าง
+  const [isAvatarBroken, setIsAvatarBroken] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
@@ -155,6 +173,24 @@ export default function MainLayout() {
     const intervalId = window.setInterval(refreshNotifications, 10000);
     return () => window.clearInterval(intervalId);
   }, []);
+
+  // โหลดใหม่ทุกครั้งที่เปลี่ยนหน้า เพื่อให้ชื่อ/ตำแหน่ง/รูปอัปเดตหลังเจ้าหน้าที่แก้ข้อมูลตัวเองในหน้าบุคลากร
+  // โดยไม่ต้องล็อกอินใหม่ (layout นี้ไม่ถูก mount ซ้ำตอนเปลี่ยนหน้า)
+  useEffect(() => {
+    let isCancelled = false;
+
+    getStaffProfile().then((profile) => {
+      if (isCancelled) return;
+      if (profile) setStaffProfile(profile);
+      setIsAvatarBroken(false);
+    });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [location.pathname]);
+
+  const staffFullName = staffProfile ? `${staffProfile.firstname} ${staffProfile.lastname}`.trim() : '';
 
   async function handleMarkAllRead() {
     await markAllNotificationsRead();
@@ -323,26 +359,37 @@ export default function MainLayout() {
 
           {/* ข้อมูลผู้ใช้งาน */}
           <div className="flex items-center gap-3 rounded-full border border-slate-200 bg-white py-1.5 pl-1.5 pr-4 shadow-sm">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-800">
-              <span
-                className="material-symbols-outlined"
-                style={{
-                  fontVariationSettings:
-                    "'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24",
-                }}
-              >
-                person
-              </span>
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-blue-100 text-blue-800">
+              {staffProfile?.image_url && !isAvatarBroken ? (
+                <img
+                  src={photoFullUrl(staffProfile.image_url)}
+                  alt={staffFullName}
+                  onError={() => setIsAvatarBroken(true)}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <span
+                  className="material-symbols-outlined"
+                  style={{
+                    fontVariationSettings:
+                      "'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24",
+                  }}
+                >
+                  person
+                </span>
+              )}
             </div>
 
-            <div>
-              <p className="text-xs font-bold text-slate-800">
-                เจ้าหน้าที่หอพัก
+            <div className="min-w-0 max-w-[14rem]">
+              <p className="truncate text-xs font-bold text-slate-800">
+                {staffFullName || 'เจ้าหน้าที่หอพัก'}
               </p>
 
-              <p className="text-[10px] text-slate-500">
-                Staff · Dorm 10–11
-              </p>
+              {staffProfile?.position_name && (
+                <p className="truncate text-[10px] text-slate-500">
+                  {staffProfile.position_name}
+                </p>
+              )}
             </div>
           </div>
         </div>

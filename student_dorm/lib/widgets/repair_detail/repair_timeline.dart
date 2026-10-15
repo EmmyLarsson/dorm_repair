@@ -932,12 +932,15 @@ class CompletionReportTimelineCard extends StatelessWidget {
   final int round;
   final String date;
   final List<RepairCompletionItem> items;
+  // ส่งต่อให้การ์ดรายการซ่อมใช้ตั้งชื่อหน้าดูรูปตอนกดภาพย่อ
+  final String caseCode;
 
   const CompletionReportTimelineCard({
     super.key,
     required this.round,
     required this.date,
     required this.items,
+    required this.caseCode,
   });
 
   @override
@@ -983,7 +986,7 @@ class CompletionReportTimelineCard extends StatelessWidget {
                   const Text('ยังไม่มีรายงาน', style: TextStyle(fontSize: 13, color: kTextMuted))
                 else
                   for (final item in items) ...[
-                    CompletionItemCard(item: item),
+                    CompletionItemCard(item: item, caseCode: caseCode),
                     const SizedBox(height: 10),
                   ],
               ],

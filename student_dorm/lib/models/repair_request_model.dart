@@ -17,6 +17,8 @@ class RepairRequestModel {
   // complaint_rejected (ผลอุทธรณ์) และอยู่ในช่วงเวลา "ล่าสุด" ไหม (backend ตัดสินด้วยเวลา server)
   String? lastDecisionStep;
   bool isDecisionRecent;
+  // เคยถูกอนุมัติมาก่อนไหม — แยก "ปฏิเสธตอนตรวจสอบ" ออกจาก "เจ้าหน้าที่ยกเลิกตอนกำลังซ่อม" ที่ใช้ step cancelled เหมือนกัน
+  bool wasApproved;
 
   RepairRequestModel({
     required this.requestId,
@@ -32,6 +34,7 @@ class RepairRequestModel {
     this.isRecentlyClosed = false,
     this.lastDecisionStep,
     this.isDecisionRecent = false,
+    this.wasApproved = false,
   });
 
   DateTime getRepairRequestDateTime() {
@@ -70,6 +73,7 @@ class RepairRequestModel {
       isRecentlyClosed: _flag(json['is_recently_closed']),
       lastDecisionStep: json['last_decision_step'] as String?,
       isDecisionRecent: _flag(json['is_decision_recent']),
+      wasApproved: _flag(json['was_approved']),
     );
   }
 

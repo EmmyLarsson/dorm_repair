@@ -102,6 +102,16 @@ async function rejectRepairRequest(requestId, reason) {
   return response.json();
 }
 
+// ยกเลิกงานที่อนุมัติแล้วแต่ยังไม่ส่งงาน (สถานะ 2) — คนละ endpoint กับ /reject ที่ใช้ตอนตรวจสอบคำร้องสถานะ 1
+async function cancelInProgressRepairRequest(requestId, reason) {
+  const response = await AppAPI.post("/repair_request/cancel_in_progress", {
+    request_id: requestId,
+    reason,
+  });
+
+  return response.json();
+}
+
 async function getRepairRequestDetail(requestId) {
   const response = await AppAPI.get(`/repair_request/get_by_id/${requestId}`);
   const json = await response.json();
@@ -220,7 +230,32 @@ async function getRepairEquipmentUsage(requestId) {
     equipmentName: row.equipment_name,
     unitName: row.unit_name,
     quantity: row.quantity_used,
+    // รอบที่เบิกใช้: 0 = ซ่อม, 1-2 = แก้ไขครั้งที่ 1-2 (backend คืนมาทุกรอบเพื่อแสดงประวัติ)
+    revisionRound: row.revision_round ?? 0,
   }));
+}
+
+// ครุภัณฑ์ที่ใช้ของ "หนึ่งรอบ" แสดงอย่างเดียว (ประวัติ) — ใช้ทั้งในมุมมองรอบที่ผ่านไปแล้วและสรุปรอบก่อนหน้าตอนนัดรอบแก้ไข
+function EquipmentUsageHistory({ items, emptyText }) {
+  if (items.length === 0) {
+    return <p className="text-sm text-slate-400">{emptyText}</p>;
+  }
+
+  return (
+    <ul className="flex flex-col gap-1.5">
+      {items.map((item) => (
+        <li
+          key={item.equipmentId}
+          className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm"
+        >
+          <span className="font-bold text-slate-800 truncate">{item.equipmentName}</span>
+          <span className="shrink-0 text-xs font-semibold text-slate-500">
+            {item.quantity} {item.unitName}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 async function completeRepairRequest(requestId) {
@@ -526,6 +561,9 @@ function RepairManagementPage() {
   const [equipmentList, setEquipmentList] = useState([]);
   const [equipmentTypeList, setEquipmentTypeList] = useState([]);
   const [pendingEquipmentUsage, setPendingEquipmentUsage] = useState([]);
+  // ครุภัณฑ์ที่เบิกใช้ของ "ทุกรอบ" ของเคสที่เปิดอยู่ (ประวัติ อ่านอย่างเดียว) — pendingEquipmentUsage ด้านบนคือชุดของรอบปัจจุบัน
+  // ที่กำลังแก้ไขเท่านั้น (backend แทนที่เฉพาะรอบปัจจุบัน รอบเก่าเก็บไว้ไม่ถูกคืนสต็อก)
+  const [allEquipmentUsage, setAllEquipmentUsage] = useState([]);
   const [manageFormSnapshot, setManageFormSnapshot] = useState(null);
   // วันที่เร็วที่สุดที่นัดหมายได้ (YYYY-MM-DD) — ห้ามย้อนหลัง: ต้องไม่ก่อนวันนี้ และไม่ก่อนวันที่
   // เจ้าหน้าที่อนุมัติล่าสุด (คำร้องแจ้งซ่อมครั้งแรก หรือคำร้องอุทธรณ์รอบแก้ไข)
@@ -798,7 +836,7 @@ function RepairManagementPage() {
   /* ─── ยกเลิกงานที่อยู่ระหว่างซ่อม ─── */
   async function handleCancelInProgress(reason) {
     const repair = cancelingRepair;
-    const response = await rejectRepairRequest(repair.id, reason);
+    const response = await cancelInProgressRepairRequest(repair.id, reason);
 
     if (response.isError) {
       alert(response.errorMessage || 'ยกเลิกไม่สำเร็จ');
@@ -867,12 +905,15 @@ function RepairManagementPage() {
     let initialForm = { date: '', timeslot: '09-11', technicianId: '', notes: '' };
     let initialEquipment = [];
 
+    // ดึงครุภัณฑ์ที่เบิกใช้ของทุกรอบเสมอ (แม้รอบปัจจุบันยังไม่มีนัดหมาย) เพื่อแสดงเป็นประวัติของรอบก่อนหน้า
+    const equipmentUsageAllRounds = await getRepairEquipmentUsage(requestId);
+    setAllEquipmentUsage(equipmentUsageAllRounds);
+
     // ถ้ามีนัดหมายอยู่แล้ว ให้ดึงข้อมูลมาเติมในฟอร์มเพื่อแก้ไข (รวมครุภัณฑ์ที่เคยเบิกไว้ด้วย)
     if (r.appointmentDate) {
-      const [detail, equipmentUsage] = await Promise.all([
-        getRepairRequestDetail(requestId),
-        getRepairEquipmentUsage(requestId),
-      ]);
+      const detail = await getRepairRequestDetail(requestId);
+      // ฟอร์มแก้ไขใช้เฉพาะชุดของรอบปัจจุบัน — ถ้าเอารอบก่อนหน้ามาด้วย บันทึกแล้วจะเบิกซ้ำและสต็อกหักเบิ้ล
+      const equipmentUsage = equipmentUsageAllRounds.filter((u) => u.revisionRound === currentRound);
 
       const [datePart, timePart] = (detail.appointmentDate || '').split(' ');
       const hour = Number((timePart || '09:00:00').split(':')[0]);
@@ -987,6 +1028,8 @@ function RepairManagementPage() {
 
   async function handleSaveManage() {
     const repair = findCase(manageRequestId);
+    // กันไว้อีกชั้นแม้ปุ่มจะถูกปิดอยู่ (backend ปฏิเสธซ้ำอยู่แล้ว) — เคสปิดงาน/รออุทธรณ์ห้ามบันทึกการมอบหมาย
+    if (isManageScheduleLocked) return;
 
     // attribute min ของ input วันที่ยังพิมพ์เลขวันย้อนหลังด้วยคีย์บอร์ดทะลุได้ เลยเช็คซ้ำตอนกดบันทึก
     // เช็คเฉพาะตอนวันนัดถูกเปลี่ยนจากค่าตั้งต้น — บันทึกครุภัณฑ์/หมายเหตุของนัดเดิมที่ผ่านไปแล้วต้องทำได้
@@ -1172,6 +1215,9 @@ function RepairManagementPage() {
   // ตัวปรับจำนวนครั้งที่ยื่นอุทธรณ์ได้: เคสที่ปิดแล้ว (4 ปฏิเสธ/ยกเลิก, 6 สำเร็จ, 8 ซ่อมไม่สำเร็จ) ปรับไม่ได้ และ
   // ตั้งต่ำกว่าจำนวนที่นักศึกษายื่นไปแล้วไม่ได้ (backend ตรวจซ้ำอีกชั้น)
   const isManageCaseClosed = manageStatusId === 4 || manageStatusId === 6 || manageStatusId === 8;
+  // แท็บนัดหมาย/ครุภัณฑ์ล็อกเมื่อ ปิดงานแล้ว (4, 6, 8) หรือยื่นอุทธรณ์รอตัดสิน (7) — สถานะ 3 ยังแก้ได้ (เบิกครุภัณฑ์เพิ่มหลังซ่อมเสร็จ)
+  // backend ตรวจซ้ำอีกชั้น (SCHEDULE_LOCKED_STATUS_IDS ใน server/models/repair_request.js)
+  const isManageScheduleLocked = isManageLockedByComplaint || isManageCaseClosed;
   const manageSavedLimit = findCase(manageRequestId)?.maxComplaints;
   const complaintLimitMin = Math.max(MIN_COMPLAINT_LIMIT, caseComplaints.length);
 
@@ -1219,6 +1265,16 @@ function RepairManagementPage() {
     }
     return list;
   })();
+
+  // มีคำร้องที่ต้องแสดงในแท็บของรอบที่กำลังดูไหม — ใช้ซ่อนหัวข้อ "ประวัติคำร้องจากนักศึกษา" ทั้งก้อนเมื่อรอบนี้ไม่มีใบให้แสดง
+  // (เดิมหัวข้อขึ้นทุกครั้งที่เคสมีคำร้องใดๆ จึงเหลือหัวข้อลอยๆ ไม่มีรายการในแท็บ "ซ่อม") กติกาต้องตรงกับ isRelevant ในรายการคำร้องด้านล่าง
+  const hasComplaintForViewedRound = caseComplaints.some((complaint, index) => {
+    const roundOfComplaint = caseComplaints.slice(0, index).filter((c) => c.decision === 'approved').length;
+    return (
+      (roundOfComplaint === manageRound && complaint.decision !== 'approved') ||
+      (roundOfComplaint === manageRound - 1 && complaint.decision === 'approved')
+    );
+  });
 
   /* ─── Modal 3: Review ─── */
   const reviewRepair = reviewRequestId ? findCase(reviewRequestId) : null;
@@ -1519,7 +1575,7 @@ function RepairManagementPage() {
         footer={
           manageTab === 'schedule' ? (
             <div className="flex gap-3 ml-auto items-center">
-              {findCase(manageRequestId)?.appointmentDate && !isManageLockedByComplaint && !isViewingPastRound && (
+              {findCase(manageRequestId)?.appointmentDate && !isManageScheduleLocked && !isViewingPastRound && (
                 <button onClick={handleDeleteAppointment} className="h-11.5 px-6 rounded-full text-sm font-bold text-red-700 bg-red-100 hover:bg-red-200 flex items-center gap-2">
                   <span className="material-symbols-outlined text-lg">event_busy</span> ลบกำหนดนัดหมาย
                 </button>
@@ -1529,7 +1585,7 @@ function RepairManagementPage() {
               </button>
               <button
                 onClick={handleSaveManage}
-                disabled={!hasScheduleChanges() || isManageLockedByComplaint || isViewingPastRound}
+                disabled={!hasScheduleChanges() || isManageScheduleLocked || isViewingPastRound}
                 className="h-11.5 px-6 rounded-full text-sm font-bold text-white bg-blue-700 shadow-md hover:brightness-110 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:brightness-100"
               >
                 <span className="material-symbols-outlined text-lg">save</span> บันทึกการมอบหมาย
@@ -1648,9 +1704,22 @@ function RepairManagementPage() {
               </div>
             ))
           )}
+
+          <div className="flex flex-col gap-2 pt-2">
+            <label className="text-sm font-bold">ครุภัณฑ์ที่ใช้ใน "{roundLabel(manageRound)}"</label>
+            <EquipmentUsageHistory
+              items={allEquipmentUsage.filter((u) => u.revisionRound === manageRound)}
+              emptyText="ไม่มีการใช้ครุภัณฑ์ในรอบนี้"
+            />
+          </div>
         </div>
         ) : manageTab === 'schedule' ? (
-        <fieldset disabled={isManageLockedByComplaint} className="min-w-0 border-0 p-0 m-0 flex flex-col gap-4">
+        <fieldset disabled={isManageScheduleLocked} className="min-w-0 border-0 p-0 m-0 flex flex-col gap-4">
+        {isManageCaseClosed && (
+          <div className="rounded-xl border border-slate-300 bg-slate-100 px-4 py-3 text-sm text-slate-700">
+            เคสนี้ปิดงานแล้ว — แก้ไขนัดหมายและครุภัณฑ์ไม่ได้ (ดูย้อนหลังอย่างเดียว)
+          </div>
+        )}
         {isManageLockedByComplaint && (
           <div className="rounded-xl border border-orange-300 bg-orange-50 px-4 py-3 text-sm text-orange-800">
             เคสนี้มีคำร้องจากนักศึกษารอตัดสินใจ — แก้ไขนัดหมายไม่ได้จนกว่าจะอนุมัติหรือปฏิเสธคำร้อง (ดูที่แท็บ "รายงานผลการซ่อม")
@@ -1736,6 +1805,22 @@ function RepairManagementPage() {
               </button>
             </div>
 
+            {/* ตอนนัดรอบแก้ไข: ดูย้อนหลังว่ารอบก่อนหน้าใช้ครุภัณฑ์อะไรไปแล้วบ้าง (อ่านอย่างเดียว ไม่นับรวมกับรายการด้านบน) */}
+            {manageRound > 0 && (
+              <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+                <label className="text-sm font-bold text-slate-700">ครุภัณฑ์ที่ใช้ไปแล้วในรอบก่อนหน้า</label>
+                {Array.from({ length: manageRound }, (_, round) => round).map((round) => (
+                  <div key={round} className="flex flex-col gap-1.5">
+                    <span className="text-xs font-bold text-slate-500">{roundLabel(round)}</span>
+                    <EquipmentUsageHistory
+                      items={allEquipmentUsage.filter((u) => u.revisionRound === round)}
+                      emptyText="ไม่มีการใช้ครุภัณฑ์"
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className="flex flex-col gap-2">
               <label className="text-sm font-bold">หมายเหตุ</label>
               <textarea
@@ -1750,8 +1835,8 @@ function RepairManagementPage() {
         </fieldset>
         ) : (
         <div className="flex flex-col gap-6">
-          {caseComplaints.length > 0 && (
-            <div className="flex flex-col gap-3">
+          {hasComplaintForViewedRound && (
+            <div className="order-3 flex flex-col gap-3">
               <label className="text-sm font-bold">ประวัติคำร้องจากนักศึกษา</label>
               {caseComplaints
                 .map((complaint, index) => {
@@ -1762,7 +1847,11 @@ function RepairManagementPage() {
                   const roundOfComplaint = caseComplaints.slice(0, index).filter((c) => c.decision === 'approved').length;
                   // โชว์เฉพาะคำร้องที่เกี่ยวกับรอบนี้: ใบที่ทำให้เกิดรอบนี้ (อนุมัติแล้ว รอบ = รอบปัจจุบัน-1)
                   // และใบที่ยื่นต่อรายงานรอบนี้ (รอบ = รอบปัจจุบัน ไม่ว่าจะ pending/approved/rejected)
-                  const isRelevant = roundOfComplaint === manageRound || (roundOfComplaint === manageRound - 1 && complaint.decision === 'approved');
+                  // แก้ไขภายหลัง: คำร้องที่ "อนุมัติ" แล้วคือคำร้องแก้ไขที่ทำให้เกิดรอบแก้ไข จึงโชว์เฉพาะในแท็บรอบแก้ไขที่มันทำให้เกิด
+                  // ไม่โชว์ปนในแท็บ "ซ่อม" ส่วนคำร้องที่รอตัดสิน/ถูกปฏิเสธยังโชว์ในแท็บรอบที่ยื่นต่อรายงาน (ต้องเห็นเพื่อตัดสินใจ)
+                  const isRelevant =
+                    (roundOfComplaint === manageRound && complaint.decision !== 'approved') ||
+                    (roundOfComplaint === manageRound - 1 && complaint.decision === 'approved');
                   return { complaint, index, isRelevant };
                 })
                 .filter((entry) => entry.isRelevant)
@@ -1864,7 +1953,17 @@ function RepairManagementPage() {
             </div>
           )}
 
-          <div className="flex flex-col gap-3">
+          {/* ครุภัณฑ์ที่ใช้ในรอบที่กำลังดู — แสดงในแท็บรายงานด้วย เพื่อให้รายงานผลของรอบบอกว่าใช้อะไรไปบ้าง */}
+          <div className="order-2 flex flex-col gap-2">
+            <label className="text-sm font-bold">ครุภัณฑ์ที่ใช้ใน "{roundLabel(manageRound)}"</label>
+            <EquipmentUsageHistory
+              items={allEquipmentUsage.filter((u) => u.revisionRound === manageRound)}
+              emptyText="ไม่มีการใช้ครุภัณฑ์ในรอบนี้"
+            />
+          </div>
+
+          {/* order-1: การ์ดรายงานอยู่บนสุดของแท็บ ไม่ต้องเลื่อนผ่านประวัติคำร้อง (สลับลำดับด้วย flex order ไม่ย้ายโค้ด) */}
+          <div className="order-1 flex flex-col gap-3">
             <label className="text-sm font-bold">
               {roundReportTitle(manageRound)} (แยกตามรายการงานซ่อม)
               {!isViewedReportEditable && (
@@ -2131,6 +2230,9 @@ function RepairManagementPage() {
       <RejectReasonModal
         isOpen={!!cancelingRepair}
         caseCode={cancelingRepair?.caseCode}
+        title="ระบุเหตุผลที่ยกเลิกงานซ่อม"
+        placeholder="เช่น แจ้งซ้ำ / นักศึกษาย้ายออก / ปัญหาหายไปแล้ว..."
+        note="นักศึกษาจะเห็นเหตุผลนี้ในไทม์ไลน์ ครุภัณฑ์ที่เบิกไว้จะถูกคืนเข้าคลัง และยกเลิกแล้วย้อนกลับไม่ได้"
         onClose={() => setCancelingRepair(null)}
         onConfirm={async (reason) => {
           const succeeded = await handleCancelInProgress(reason);

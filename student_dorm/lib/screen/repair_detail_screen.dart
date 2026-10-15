@@ -1120,6 +1120,7 @@ class _CaseStatusScreenState extends State<CaseStatusScreen> {
           round: appointmentRound,
           date: formatDateShort(step.eventDate),
           items: _allCompletionItems.where((i) => i.revisionRound == appointmentRound).toList(),
+          caseCode: detail.caseCode,
         );
       case 'complaint_filed':
         // จับคู่การ์ด timeline ใบนี้กับแถวคำร้องจริงในตาราง repair_complaint (ผ่านลำดับ ordinal เดียวกับ

@@ -69,21 +69,15 @@ class RepairInfoCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                child: IntrinsicHeight(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                // ตัดมุมโค้งทั้งแถวด้วยรัศมีขอบในของการ์ด (18 - ความหนาเส้นขอบ 1px = 17) แล้วให้แถบสีเป็นสี่เหลี่ยมตรงๆ
+                // — เดิมแถบกว้าง 5px แต่สั่งโค้งรัศมี 18 ทำให้ Flutter บีบรัศมีจนโค้งไม่ตรงกับมุมของการ์ด
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(17),
+                  child: Stack(
                     children: [
-                      Container(
-                        width: 5,
-                        decoration: BoxDecoration(
-                          color: barColor,
-                          borderRadius: const BorderRadius.only(
-                            topLeft: Radius.circular(18),
-                            bottomLeft: Radius.circular(18),
-                          ),
-                        ),
-                      ),
-                      Expanded(
+                      Padding(
+                        // เว้นที่ด้านซ้ายให้แถบสี 5px
+                        padding: const EdgeInsets.only(left: 5),
                         child: Padding(
                           padding: const EdgeInsets.all(16),
                           child: Row(
@@ -183,6 +177,15 @@ class RepairInfoCard extends StatelessWidget {
                             ],
                           ),
                         ),
+                      ),
+                      // แถบสีซ้ายวางทับเต็มความสูงการ์ดด้วย Positioned — ไม่ใช้ IntrinsicHeight คำนวณความสูงล่วงหน้าแล้วบังคับ
+                      // ให้ Row ยืดตาม เพราะเปราะบางกับความสูงบรรทัดของฟอนต์ไทย ทำให้เนื้อหาล้นการ์ดไม่กี่พิกเซล (overflow)
+                      Positioned(
+                        left: 0,
+                        top: 0,
+                        bottom: 0,
+                        width: 5,
+                        child: ColoredBox(color: barColor),
                       ),
                     ],
                   ),

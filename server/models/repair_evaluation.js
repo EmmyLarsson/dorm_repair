@@ -65,7 +65,9 @@ module.exports = {
     // ไม่ดึงทั้งตารางมากรองทีหลัง จึงไม่มีทางเห็นรีวิวของคนอื่น; ส่งแค่จำนวนรูป (ไม่ส่ง URL) เพราะการ์ดในรายการ
     // ไม่แสดงรูป รูปเต็มดึงจาก getByRequestId ตอนเปิดรายละเอียด
     // DISTINCT ใน GROUP_CONCAT: คำร้องหนึ่งมีหลายประเภทงาน JOIN แล้วแถวซ้ำกับ JOIN รูป จึงต้องกันชื่อซ้ำ
-    getAllByStudent: async (studentId) => {
+    // accountId = account_id ของผู้ล็อกอิน (ไม่ใช่ student_id) — repair_request.student_id อ้างอิงตาราง student ที่เลข
+    // ไม่ตรงกับ account_id จึงแปลงผ่านตาราง account/student ใน SQL
+    getAllByStudent: async (accountId) => {
         let conn;
         let result;
 
@@ -88,9 +90,10 @@ module.exports = {
                 "  (SELECT COUNT(*) FROM repair_evaluation_photo rep WHERE rep.evaluation_id = re.evaluation_id) AS photo_count " +
                 "FROM repair_evaluation re " +
                 "JOIN repair_request rr ON rr.request_id = re.request_id " +
-                "WHERE rr.student_id = ? " +
+                "WHERE rr.student_id = (SELECT s.student_id FROM student s " +
+                "  JOIN account a ON a.person_id = s.person_id WHERE a.account_id = ?) " +
                 "ORDER BY re.evaluated_at DESC, re.evaluation_id DESC",
-                [studentId]
+                [accountId]
             );
 
             result = {

@@ -11,7 +11,7 @@ class StatusCard extends StatelessWidget {
     required this.color,
     required this.isActive,
     required this.onTap,
-    this.hasUnread = false,
+    this.unreadCount = 0,
   });
 
   final String filterKey;
@@ -20,8 +20,8 @@ class StatusCard extends StatelessWidget {
   final Color color;
   final bool isActive;
   final VoidCallback onTap;
-  // จุดแดง = มีเคสในหัวข้อนี้ที่เจ้าหน้าที่อัปเดตแล้วนักศึกษายังไม่ได้เปิดดู
-  final bool hasUnread;
+  // วงกลมแดงมีตัวเลข = จำนวนเคสในหัวข้อนี้ที่เจ้าหน้าที่อัปเดตแล้วนักศึกษายังไม่ได้เปิดดู (0 = ไม่แสดง)
+  final int unreadCount;
 
   @override
   Widget build(BuildContext context) {
@@ -80,17 +80,29 @@ class StatusCard extends StatelessWidget {
               ],
             ),
           ),
-          if (hasUnread)
+          if (unreadCount > 0)
             Positioned(
-              top: 10,
-              right: 10,
+              top: 8,
+              right: 8,
+              // สไตล์เดียวกับตัวเลขบนกระดิ่งของหน้าโฮม (สีแดง สูง 18) — กว้างขึ้นเองเมื่อเป็นเลขหลายหลัก
               child: Container(
-                width: 10,
-                height: 10,
+                constraints: const BoxConstraints(minWidth: 18),
+                height: 18,
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                alignment: Alignment.center,
                 decoration: BoxDecoration(
                   color: const Color(0xFFE11D48),
-                  shape: BoxShape.circle,
+                  borderRadius: BorderRadius.circular(9),
                   border: Border.all(color: Colors.white, width: 1.5),
+                ),
+                child: Text(
+                  unreadCount > 99 ? '99+' : '$unreadCount',
+                  style: GoogleFonts.sarabun(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                    height: 1.1,
+                  ),
                 ),
               ),
             ),

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import StatusPill from '../components/StatusPill';
 import PersonnelCard from '../components/personnel/PersonnelCard';
 import PersonnelFormModal from '../components/personnel/PersonnelFormModal';
@@ -119,6 +120,18 @@ async function uploadPersonnelPhoto(personId, file) {
   return response.json();
 }
 
+// person_id ของเจ้าหน้าที่ที่ล็อกอินอยู่ — ใช้กันไม่ให้ลบบัญชีตัวเอง (backend ตรวจซ้ำอีกชั้น) ล้มเหลวคืน null
+// หน้าจอจึงไม่กันอะไร แต่ backend ยังปฏิเสธการลบตัวเองอยู่ดี
+async function getOwnPersonId() {
+  try {
+    const response = await AppAPI.get('/moderator/me');
+    const json = await response.json();
+    return json.isError ? null : json.data?.person_id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function deletePersonnel(personIds) {
   const response = await AppAPI.post('/personnel/delete', {
     person_ids: Array.isArray(personIds) ? personIds : [personIds],
@@ -138,16 +151,28 @@ function PersonnelPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
+  const [toastType, setToastType] = useState('success');
+  const [isToastVisible, setIsToastVisible] = useState(false);
 
   const [formModal, setFormModal] = useState({ isOpen: false, mode: 'add', person: null });
   const [deleteTarget, setDeleteTarget] = useState(null); // { personIds: [], label: '' }
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);
+  const [ownPersonId, setOwnPersonId] = useState(null);
 
-  function showToast(message) {
+  useEffect(() => {
+    getOwnPersonId().then(setOwnPersonId);
+  }, []);
+
+  // type 'error' = ข้อความผิดพลาดจาก backend (เช่น username ซ้ำ) แสดงลอยด้านบนกลางจอและค้างนานกว่า เพื่อให้เห็น
+  // แน่ๆ แม้ผู้ใช้เลื่อนฟอร์มลงไปที่ปุ่มบันทึกแล้ว และไม่ไปบังปุ่มบันทึกมุมขวาล่างของโมดัล
+  function showToast(message, type = 'success', durationMs = 2800) {
     setToast(message);
+    setToastType(type);
+    setIsToastVisible(true);
     window.clearTimeout(showToast._t);
-    showToast._t = window.setTimeout(() => setToast(''), 2800);
+    // ซ่อนด้วยธง ไม่เคลียร์ข้อความ — ไม่งั้นการ์ดที่กำลังเลื่อนขึ้นหายจะกลายเป็นกล่องว่างระหว่างแอนิเมชันออก
+    showToast._t = window.setTimeout(() => setIsToastVisible(false), durationMs);
   }
 
   async function fetchAll(silent = false) {
@@ -243,6 +268,9 @@ function PersonnelPage() {
       const savedMessage = values.mode === 'edit' ? 'บันทึกข้อมูลบุคลากรเรียบร้อย' : 'เพิ่มข้อมูลบุคลากรเรียบร้อย';
       showToast(photoErrorMessage ? `${savedMessage} แต่${photoErrorMessage}` : savedMessage);
       await fetchAll();
+    } else {
+      // โมดัลยังเปิดค้างไว้ให้แก้ข้อมูลแล้วกดบันทึกใหม่ — แจ้งเป็นข้อความลอยแทนแถบในฟอร์ม
+      showToast(response.errorMessage || 'บันทึกข้อมูลไม่สำเร็จ', 'error', 5000);
     }
 
     return response;
@@ -278,8 +306,13 @@ function PersonnelPage() {
     setSelectedIds([]);
   }
 
+  // "เลือกทั้งหมด" ข้ามบัญชีของตัวเอง เพราะลบตัวเองไม่ได้
+  function getSelectableIds() {
+    return filteredData.filter((p) => p.personId !== ownPersonId).map((p) => p.personId);
+  }
+
   function toggleSelectAll() {
-    const allIds = filteredData.map((p) => p.personId);
+    const allIds = getSelectableIds();
     const isAllSelected = allIds.length > 0 && allIds.every((id) => selectedIds.includes(id));
     setSelectedIds(isAllSelected ? [] : allIds);
   }
@@ -383,7 +416,7 @@ function PersonnelPage() {
                 className="flex items-center gap-1.5 rounded-xl bg-indigo-100 px-4 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-200"
               >
                 <span className="material-symbols-outlined text-base">
-                  {filteredData.length > 0 && filteredData.every((p) => selectedIds.includes(p.personId))
+                  {getSelectableIds().length > 0 && getSelectableIds().every((id) => selectedIds.includes(id))
                     ? 'deselect'
                     : 'select_all'}
                 </span>
@@ -434,6 +467,7 @@ function PersonnelPage() {
                 onEdit={openEditModal}
                 selectable={selectMode}
                 isSelected={selectedIds.includes(person.personId)}
+                isSelf={person.personId === ownPersonId}
                 onToggleSelect={toggleSelect}
               />
             ))}
@@ -486,6 +520,7 @@ function PersonnelPage() {
         onClose={closeFormModal}
         onSubmit={handleFormSubmit}
         onRequestDelete={requestDeleteSingle}
+        canDelete={formModal.person?.personId !== ownPersonId}
       />
 
       <ConfirmDeleteModal
@@ -496,12 +531,31 @@ function PersonnelPage() {
         message={deleteTarget?.label}
       />
 
-      {toast && (
+      {isToastVisible && toastType !== 'error' && (
         <div className="fixed bottom-8 right-8 z-[200] flex items-center gap-2.5 bg-slate-900 text-white px-5.5 py-3.5 rounded-2xl text-[13.5px] font-semibold shadow-xl">
           <span className="material-symbols-outlined text-green-400 text-xl">check_circle</span>
           {toast}
         </div>
       )}
+
+      {/* ข้อความผิดพลาด (เช่น username ซ้ำ) เลื่อนลงมาจากด้านบน แล้วเลื่อนขึ้นหายไป — จัดกึ่งกลางด้วย wrapper
+          แทน -translate-x-1/2 เพราะ framer-motion เขียนทับ transform ของ class ทำให้กึ่งกลางเพี้ยน */}
+      <AnimatePresence>
+        {isToastVisible && toastType === 'error' && (
+          <div key="error-toast" className="pointer-events-none fixed inset-x-0 top-20 z-[200] flex justify-center">
+            <motion.div
+              initial={{ y: -32, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: -32, opacity: 0 }}
+              transition={{ duration: 0.25, ease: 'easeOut' }}
+              className="pointer-events-auto flex items-center gap-2.5 bg-slate-900 text-white px-5.5 py-3.5 rounded-2xl text-[13.5px] font-semibold shadow-xl"
+            >
+              <span className="material-symbols-outlined text-red-400 text-xl">error</span>
+              {toast}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

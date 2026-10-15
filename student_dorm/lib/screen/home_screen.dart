@@ -32,7 +32,11 @@ const List<_MainGroup> _kMainGroups = [
 ];
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, this.onViewHistory});
+
+  /// เรียกเมื่อผู้ใช้กด "ดูประวัติการแจ้งซ่อม" ในหน้าแจ้งซ่อมสำเร็จ — MainScreen เป็นเจ้าของแท็บ
+  /// จึงให้ MainScreen เป็นคนสลับไปหน้าประวัติ
+  final VoidCallback? onViewHistory;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -282,8 +286,19 @@ class _HomeScreenState extends State<HomeScreen> {
       return picked;
     }
 
+    // ผลตัดสินแสดงเฉพาะตอนเคสยังอยู่ในสถานะที่ผลนั้นสร้างขึ้น — lastDecisionStep คือ "ผลตัดสินล่าสุดที่เคยมี" ไม่ใช่
+    // เหตุการณ์ล่าสุดที่ยังไม่เปิดดู ถ้าไม่เช็คสถานะ เคสที่เจ้าหน้าที่ส่งงานแล้ว (สถานะ 3) จะถูกขึ้นเป็น "อนุมัติคำร้องแล้ว"
+    // อนุมัติ → สถานะ 2 / ปฏิเสธ → 4 / อนุมัติอุทธรณ์ → 5 / ปฏิเสธอุทธรณ์ → 3 (กลับไปรอยืนยัน) หรือ 8 (ครบสิทธิ์ ปิดเคส)
+    bool decisionStillCurrent(RepairRequestModel r) => switch (r.lastDecisionStep) {
+          'approved' => r.statusId == 2,
+          'cancelled' => r.statusId == 4,
+          'complaint_approved' => r.statusId == 5,
+          'complaint_rejected' => r.statusId == 3 || r.statusId == 8,
+          _ => false,
+        };
+
     bool isDecision(RepairRequestModel r, List<String> steps) =>
-        r.hasUnread && r.isDecisionRecent && steps.contains(r.lastDecisionStep);
+        r.hasUnread && r.isDecisionRecent && steps.contains(r.lastDecisionStep) && decisionStillCurrent(r);
 
     final dueToday = take((r) => r.isDueToday);
     final overdue = take((r) => r.isOverdue);
@@ -293,11 +308,27 @@ class _HomeScreenState extends State<HomeScreen> {
 
     (String, Color)? decisionNote(RepairRequestModel r) => switch (r.lastDecisionStep) {
           'approved' => ('✓ เจ้าหน้าที่อนุมัติคำร้องแล้ว', kStatusColors[6]!),
-          'cancelled' => ('✕ เจ้าหน้าที่ปฏิเสธคำร้อง · เปิดดูเหตุผล', kStatusColors[4]!),
+          // 'cancelled' มี 2 ที่มา: ปฏิเสธตอนตรวจสอบ (ยังไม่เคยอนุมัติ) กับเจ้าหน้าที่ยกเลิกตอนกำลังซ่อม (เคยอนุมัติแล้ว)
+          'cancelled' => (
+              r.wasApproved ? '✕ เจ้าหน้าที่ยกเลิกงานซ่อม · เปิดดูเหตุผล' : '✕ เจ้าหน้าที่ปฏิเสธคำร้อง · เปิดดูเหตุผล',
+              kStatusColors[4]!,
+            ),
           'complaint_approved' => ('✓ อนุมัติคำร้อง กำลังแก้ไขงานซ่อม', kStatusColors[7]!),
           'complaint_rejected' => ('✕ ปฏิเสธคำร้อง · เปิดดูเหตุผล', kStatusColors[7]!),
           _ => null,
         };
+
+    // เจ้าหน้าที่ส่งงานแล้ว (สถานะ 3 รอนักศึกษายืนยัน) ที่ยังไม่เปิดดู — ไม่ใช่ "ผลตัดสิน" จึงไม่ขึ้นหัวข้อผลในการแจ้งซ่อม
+    // แต่แสดงป้ายบนการ์ดในงานซ่อมปัจจุบัน รอบแก้ไข = เคสที่เคยอนุมัติคำร้องอุทธรณ์แล้วส่งงานใหม่ (ผลตัดสินล่าสุดคือ
+    // complaint_approved) ส่วนสถานะ 3 ที่ผลล่าสุดคือปฏิเสธอุทธรณ์ ให้ขึ้นเป็นผลคำร้องอุทธรณ์ตามเดิม ไม่ใช่การส่งงาน
+    (String, Color)? completionNote(RepairRequestModel r) {
+      if (r.statusId != 3 || !r.hasUnread || r.lastDecisionStep == 'complaint_rejected') return null;
+      final bool isRevisionRound = r.lastDecisionStep == 'complaint_approved';
+      return (
+        isRevisionRound ? '➤ เจ้าหน้าที่ส่งงานแก้ไขแล้ว · รอคุณยืนยันผล' : '➤ เจ้าหน้าที่ส่งงานแล้ว · รอคุณยืนยันผล',
+        kStatusColors[3]!,
+      );
+    }
 
     final sections = [
       (title: 'นัดหมายวันนี้', icon: Icons.event_available, color: kStatusColors[2]!, items: dueToday,
@@ -307,7 +338,7 @@ class _HomeScreenState extends State<HomeScreen> {
       (title: 'ผลในการแจ้งซ่อม', icon: Icons.notifications_active, color: kStatusColors[6]!, items: decisions, note: decisionNote),
       (title: 'ผลคำร้องอุทธรณ์', icon: Icons.edit_note, color: kStatusColors[7]!, items: appeals, note: decisionNote),
       (title: 'งานซ่อมปัจจุบัน', icon: Icons.build_circle_outlined, color: kGray500, items: rest,
-          note: (RepairRequestModel r) => null),
+          note: completionNote),
     ];
 
     return Column(
@@ -355,7 +386,7 @@ class _HomeScreenState extends State<HomeScreen> {
         label: g.label,
         color: kStatusColors[g.colorStatusId]!,
         isActive: _activeMain == g.key,
-        hasUnread: repairrequestModelStore.any((r) => _isVisible(r) && _inGroup(r, g) && r.hasUnread),
+        unreadCount: repairrequestModelStore.where((r) => _isVisible(r) && _inGroup(r, g) && r.hasUnread).length,
         onTap: () => setState(() {
           _activeMain = _activeMain == g.key ? null : g.key;
           _activeSub = _kSubAll;
@@ -616,21 +647,22 @@ class _HomeScreenState extends State<HomeScreen> {
       padding: const EdgeInsets.symmetric(vertical: 48),
       child: Column(
         children: [
-          const Icon(Icons.search_off, size: 48, color: kGray400),
-          const SizedBox(height: 12),
-          const Text(
+          // ไอคอนและฟอนต์ตามหน้าประวัติ (history_screen.dart _EmptyState) — สีตัวอักษรคงเดิมของหน้านี้
+          const Icon(Icons.search_off, size: 72, color: Color(0xFFD1D5DB)),
+          const SizedBox(height: 14),
+          Text(
             'ไม่พบรายการที่ค้นหา',
-            style: TextStyle(
-              fontSize: 15,
+            style: GoogleFonts.sarabun(
+              fontSize: 16,
               fontWeight: FontWeight.w700,
               color: kGray700,
             ),
           ),
-          const SizedBox(height: 4),
-          const Text(
+          const SizedBox(height: 6),
+          Text(
             'ไม่มีรายการซ่อมในสถานะนี้',
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 12.5, color: kGray500, height: 1.5),
+            style: GoogleFonts.sarabun(fontSize: 13.5, color: kGray500),
           ),
         ],
       ),
@@ -660,7 +692,8 @@ class _HomeScreenState extends State<HomeScreen> {
         child: InkWell(
           borderRadius: BorderRadius.circular(999),
           onTap: () async {
-            await Navigator.push(
+            // หน้าแจ้งซ่อมคืน true เมื่อผู้ใช้กด "ดูประวัติการแจ้งซ่อม" ในหน้าสำเร็จ (ปิดหน้าด้วยวิธีอื่นคืน null)
+            final bool? wantsHistory = await Navigator.push<bool>(
               context,
               MaterialPageRoute(builder: (context) => ReportSubmitScreen()),
             );
@@ -668,6 +701,10 @@ class _HomeScreenState extends State<HomeScreen> {
             // เรียกเมื่อกลับมาหน้า Home
             // ใช้กรณีต้องการโหลดข้อมูลงานซ่อมใหม่
             _fetchData();
+
+            if (wantsHistory == true && mounted) {
+              widget.onViewHistory?.call();
+            }
           },
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 22, 0),

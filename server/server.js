@@ -198,6 +198,13 @@ app.post("/api/authen/access_request", async (req, res) => {
     res.send(JSON.stringify(response));
 });
 
+// โปรไฟล์ของเจ้าหน้าที่ที่ล็อกอินอยู่เท่านั้น (หาจาก account_id ใน token ไม่รับรหัสจาก client) — ใช้แสดงชื่อ/ตำแหน่ง/รูป
+// ที่ topbar ของพอร์ทัล ส่วน /api/profile/me ข้างล่างเป็นของนักศึกษา (JOIN ตาราง student)
+app.get("/api/moderator/me", checkAccessToken, requireRole([2]), async (req, res) => {
+    const response = await userAccountModel.getModeratorProfile(req.decoded.user_id);
+    res.json(response);
+});
+
 app.get("/api/profile/me", checkAccessToken, async (req, res) => {
     const accountId = req.decoded.user_id;
     const response = await userAccountModel.getStudentProfile(accountId);
@@ -319,7 +326,8 @@ app.get("/api/repair_request/get_all_by_user", checkAccessToken, async (req, res
 });
 
 app.post("/api/repair_request/create", checkAccessToken, requireValidPhone, async (req, res) => {
-    const studentId = req.decoded.user_id;
+    // user_id ใน token คือ account_id (ไม่ใช่ student_id) — model แปลงเป็น student_id ให้เอง
+    const accountId = req.decoded.user_id;
     const name = req.body.name;
     const phone = req.body.phone;
     const roomNumber = req.body.room_number;
@@ -327,7 +335,7 @@ app.post("/api/repair_request/create", checkAccessToken, requireValidPhone, asyn
     const description = req.body.description;
     const allowEntry = req.body.allow_entry;
 
-    const response = await repair_request.createRepairRequest(studentId, name, phone, roomNumber, repairTypeIds, description, allowEntry);
+    const response = await repair_request.createRepairRequest(accountId, name, phone, roomNumber, repairTypeIds, description, allowEntry);
     res.json(response);
 });
 
@@ -406,6 +414,26 @@ app.post("/api/repair_request/reject", checkAccessToken, requireRole([2]), async
     const accountId = req.decoded.user_id;
 
     const response = await repair_request.rejectRepairRequest(requestId, accountId, reason);
+    res.json(response);
+});
+
+// เจ้าหน้าที่ยกเลิกงานที่อยู่ระหว่างซ่อมและยังไม่ส่งงาน (สถานะ 2) — แยกจาก /reject ที่รับเฉพาะคำร้องสถานะ 1 เหตุผลบังคับ
+// เพราะนักศึกษาเห็นในไทม์ไลน์ว่าทำไมงานถูกยกเลิก (สถานะของเคสตรวจซ้ำใน model ภายใต้ล็อก ไม่เชื่อสถานะที่หน้าจอเห็น)
+app.post("/api/repair_request/cancel_in_progress", checkAccessToken, requireRole([2]), async (req, res) => {
+    const requestId = parseInt(req.body.request_id, 10);
+    const reason = (typeof req.body.reason === 'string' ? req.body.reason : '').trim();
+
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+        return res.json({ isError: true, data: "", errorMessage: "รหัสเคสไม่ถูกต้อง" });
+    }
+    if (!reason) {
+        return res.json({ isError: true, data: "", errorMessage: "กรุณาระบุเหตุผลที่ยกเลิกงานซ่อม" });
+    }
+    if (reason.length > 500) {
+        return res.json({ isError: true, data: "", errorMessage: "เหตุผลต้องไม่เกิน 500 ตัวอักษร" });
+    }
+
+    const response = await repair_request.cancelInProgressRepairRequest(requestId, req.decoded.user_id, reason);
     res.json(response);
 });
 
@@ -758,7 +786,7 @@ app.post("/api/repair_request/:request_id/completion_items/:repair_type_id/repor
 });
 
 // เช็คว่า request นี้เป็นของนักศึกษาคนที่ล็อกอินอยู่จริง (ก่อนแก้ไข/ลบผลประเมิน)
-// mirror pattern เดิมของไฟล์นี้ที่ใช้ req.decoded.user_id เทียบตรงๆ กับ student_id
+// ส่ง req.decoded.user_id (account_id) เข้าไป — isOwnRequest แปลงเป็นเจ้าของเคสให้เอง
 // ตรวจสิทธิ์อ่านข้อมูลเคสรายตัว (รูป ไทม์ไลน์ รายงาน คำร้อง รีวิว) — ผ่านเมื่อเป็นเจ้าหน้าที่ (role 2) หรือเป็นนักศึกษา
 // (role 1) เจ้าของเคสนั้นเท่านั้น; เดิมแค่ล็อกอินก็อ่านเคสของคนอื่นได้ถ้ารู้ id ซึ่งเป็นเลขเรียงเดาง่าย ข้อมูลมีชื่อ เบอร์ ห้อง
 // เช็ก role ร่วมด้วย ไม่พึ่งการเทียบ user_id กับ student_id อย่างเดียว (id ของเจ้าหน้าที่อาจบังเอิญตรงกับ id นักศึกษา)
@@ -776,11 +804,20 @@ async function requireCaseAccess(req, res, next) {
     return res.json({ isError: true, data: "", errorMessage: "คุณไม่มีสิทธิ์เข้าถึงเคสนี้" });
 }
 
-async function isOwnRequest(requestId, studentId) {
+// accountId = req.decoded.user_id (account_id ใน token ไม่ใช่ student_id) — เทียบผ่าน account → person → student
+// ไม่เทียบเลขตรงๆ เพราะ student_id กับ account_id นับแยกกัน ตรงกันแค่บังเอิญในบัญชีแรกๆ บัญชีที่เจ้าหน้าที่
+// สร้างทีหลังเลขจะไม่ตรง ทำให้ถูกมองว่าไม่ใช่เจ้าของเคสตัวเอง
+async function isOwnRequest(requestId, accountId) {
     const conn = await db_pool.getConnection();
     try {
-        const rows = await conn.query("SELECT student_id FROM repair_request WHERE request_id = ?", [requestId]);
-        return rows.length > 0 && rows[0].student_id === studentId;
+        const rows = await conn.query(
+            "SELECT 1 FROM repair_request rr " +
+            "JOIN student s ON s.student_id = rr.student_id " +
+            "JOIN account a ON a.person_id = s.person_id " +
+            "WHERE rr.request_id = ? AND a.account_id = ?",
+            [requestId, accountId]
+        );
+        return rows.length > 0;
     } finally {
         conn.release();
     }
@@ -1071,6 +1108,26 @@ app.post("/api/personnel/:person_id/photo", checkAccessToken, requireModeratorOr
 
 app.post("/api/personnel/delete", checkAccessToken, requireRole([2]), async (req, res) => {
     const personIds = req.body.person_ids;
+
+    if (!Array.isArray(personIds) || personIds.length === 0 ||
+        !personIds.every((id) => Number.isInteger(id) && id > 0)) {
+        return res.json({ isError: true, data: "", errorMessage: "ข้อมูลที่ส่งมาไม่ถูกต้อง" });
+    }
+
+    // ห้ามลบบัญชีของตัวเองที่กำลังล็อกอินอยู่ — ปฏิเสธทั้งคำขอ ไม่ลบเฉพาะคนอื่นให้ เพื่อไม่ให้ผู้ใช้ไม่รู้ว่าอะไร
+    // ถูกลบบ้าง ปิดแบบ fail closed: ถ้าหา person_id ของตัวเองไม่ได้ก็ไม่ยอมลบ ดีกว่าเสี่ยงลบตัวเองโดยไม่รู้ตัว
+    const ownPerson = await userAccountModel.getPersonIdByAccountId(req.decoded.user_id);
+    if (ownPerson.isError) {
+        return res.json({ isError: true, data: "", errorMessage: "ตรวจสอบสิทธิ์ไม่สำเร็จ กรุณาลองใหม่" });
+    }
+    if (personIds.includes(ownPerson.data)) {
+        return res.json({
+            isError: true,
+            data: "",
+            errorMessage: "ไม่สามารถลบบัญชีของตัวเองที่กำลังเข้าสู่ระบบอยู่ได้"
+        });
+    }
+
     const response = await personnel.deletePersonnel(personIds);
     res.json(response);
 });

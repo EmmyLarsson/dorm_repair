@@ -80,11 +80,11 @@ function PersonnelFormModal({
   onClose,
   onSubmit,
   onRequestDelete,
+  canDelete = true, // false = บัญชีของผู้ที่ล็อกอินอยู่ ลบตัวเองไม่ได้
 }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState('');
   const [profileImagePreview, setProfileImagePreview] = useState(null);
   const [profileImageFile, setProfileImageFile] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
@@ -125,7 +125,6 @@ function PersonnelFormModal({
       setProfileImagePreview(null);
     }
     setErrors({});
-    setSubmitError('');
     setProfileImageFile(null);
   }, [isOpen, mode, person]);
 
@@ -252,11 +251,11 @@ function PersonnelFormModal({
   async function handleSubmit() {
     if (!validate()) return;
 
-    setSubmitError('');
     setIsSubmitting(true);
 
     try {
-      const response = await onSubmit({
+      // ข้อความผิดพลาดจาก backend แสดงเป็นข้อความลอยโดยหน้า PersonnelPage (ไม่แสดงเป็นแถบในฟอร์มแล้ว)
+      await onSubmit({
         mode,
         personId: person?.personId,
         roleId,
@@ -270,10 +269,6 @@ function PersonnelFormModal({
         specialtyId: form.specialtyId ? Number(form.specialtyId) : null,
         profileImageFile,
       });
-
-      if (response?.isError) {
-        setSubmitError(response.errorMessage || 'บันทึกข้อมูลไม่สำเร็จ');
-      }
     } finally {
       setIsSubmitting(false);
     }
@@ -294,7 +289,7 @@ function PersonnelFormModal({
       maxWidth="max-w-2xl"
       footer={
         <div className="flex w-full items-center justify-between gap-3">
-          {mode === 'edit' ? (
+          {mode === 'edit' && canDelete ? (
             <button
               type="button"
               onClick={() => onRequestDelete?.(person)}
@@ -331,12 +326,6 @@ function PersonnelFormModal({
       }
     >
       <div className="flex flex-col gap-4.5">
-        {submitError && (
-          <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
-            {submitError}
-          </div>
-        )}
-
         <div className="flex flex-col items-center gap-2">
           <button
             type="button"

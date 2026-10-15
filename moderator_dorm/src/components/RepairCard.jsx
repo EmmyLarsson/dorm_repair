@@ -32,10 +32,10 @@ const MAX_UNREAD_CHIPS = 2;
  * RepairCard - การ์ดงานซ่อม ใช้ร่วมกันทั้งหน้า Home และหน้าจัดการงานซ่อม
  * ปุ่ม action จะเปลี่ยนตามสถานะ:
  *   รอตรวจสอบ (1)     -> ดูเพิ่มเติม + อนุมัติ/ปฏิเสธ
- *   อยู่ระหว่างซ่อม (2) -> ดูเพิ่มเติม + จัดการ/ยกเลิก
- *   เสร็จสิ้น (3)      -> ดูเพิ่มเติม + ตรวจสอบ (ตอนนี้หมายถึง "รอนักศึกษายืนยัน" ไม่ใช่จบจริง)
+ *   อยู่ระหว่างซ่อม (2) -> ดูเพิ่มเติม + จัดการ/ยกเลิก (ยกเลิกได้เฉพาะสถานะนี้ ก่อนส่งงาน)
+ *   เสร็จสิ้น (3)     -> ดูเพิ่มเติม + ตรวจสอบ (ตอนนี้หมายถึง "รอนักศึกษายืนยัน" ไม่ใช่จบจริง)
  *   รอตรวจสอบคำร้อง (7) -> ดูเพิ่มเติม + จัดการคำร้อง (นักศึกษายื่นอุทธรณ์ รอเจ้าหน้าที่ตัดสินใจ)
- *   รอแก้ไข (5)       -> ดูเพิ่มเติม + จัดการ/ยกเลิก (workflow เหมือน statusId 2 ทุกอย่าง)
+ *   รอแก้ไข (5)       -> ดูเพิ่มเติม + จัดการ (workflow เหมือน statusId 2 แต่ยกเลิกไม่ได้)
  *   สำเร็จ (6)        -> ดูเพิ่มเติม + ตรวจสอบ (จุดจบจริง)
  *   ซ่อมไม่สำเร็จ (8)  -> ดูเพิ่มเติม + ตรวจสอบ (จุดจบ: นักศึกษาไม่ยอมรับหลังยื่นคำร้องครบสิทธิ์)
  *   ปฏิเสธ/ยกเลิก (4)  -> ดูเพิ่มเติม เท่านั้น
@@ -291,14 +291,18 @@ function RepairCard({
                 จัดการ
               </button>
 
-              <button
-                type="button"
-                onClick={() => onCancel(repair)}
-                className="flex items-center justify-center gap-1.5 rounded-xl bg-red-100 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-200"
-              >
-                <span className="material-symbols-outlined text-base">cancel</span>
-                ยกเลิก
-              </button>
+              {/* ยกเลิกได้เฉพาะสถานะ 2 (ยังไม่ส่งงาน) — รอบแก้ไข (5) เกิดจากสิทธิ์อุทธรณ์ของนักศึกษา ยกเลิกข้ามไม่ได้ และหน้าแรก
+                  ไม่ส่ง onCancel มา จึงไม่แสดงปุ่มที่กดแล้วไม่มีอะไรรองรับ */}
+              {repair.statusId === 2 && onCancel && (
+                <button
+                  type="button"
+                  onClick={() => onCancel(repair)}
+                  className="flex items-center justify-center gap-1.5 rounded-xl bg-red-100 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-200"
+                >
+                  <span className="material-symbols-outlined text-base">cancel</span>
+                  ยกเลิก
+                </button>
+              )}
             </>
           )}
 

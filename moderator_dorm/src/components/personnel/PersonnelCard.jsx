@@ -22,6 +22,7 @@ function PersonnelCard({
   onEdit,
   selectable = false,
   isSelected = false,
+  isSelf = false,
   onToggleSelect,
 }) {
   const metaLines = [];
@@ -38,12 +39,19 @@ function PersonnelCard({
   return (
     <article className="relative rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-lg flex flex-col">
       {selectable && (
-        <input
-          type="checkbox"
-          checked={isSelected}
-          onChange={() => onToggleSelect?.(person)}
-          className="absolute right-3 top-3 h-4.5 w-4.5 rounded border-slate-300 accent-blue-700"
-        />
+        isSelf ? (
+          // บัญชีของผู้ที่ล็อกอินอยู่ลบไม่ได้ (backend ปฏิเสธด้วย) — แสดงป้ายแทนช่องติ๊กให้เห็นเหตุผล
+          <span className="absolute right-3 top-3 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">
+            บัญชีของคุณ
+          </span>
+        ) : (
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={() => onToggleSelect?.(person)}
+            className="absolute right-3 top-3 h-4.5 w-4.5 rounded border-slate-300 accent-blue-700"
+          />
+        )
       )}
 
       <div className="flex items-center gap-3">

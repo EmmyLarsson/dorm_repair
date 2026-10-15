@@ -73,6 +73,17 @@ const APPOINTMENT_SLOT_HOURS = [9, 13, 15]; // ชั่วโมงเริ่
 const MAX_QUEUE_PER_SLOT = 3; // จำกัด 3 คิวต่อ 1 ช่วงเวลาต่อวัน (9 คิว/วัน)
 const MAX_SEARCH_DAYS = 90;  // กันวนไม่รู้จบ เคสจริงไม่ควรเต็มขนาดนี้
 
+// แปลง account_id (ค่าที่ token เก็บ) เป็น student_id ภายใน SQL — repair_request.student_id อ้างอิงตาราง student
+// ซึ่งเลขไม่ตรงกับ account_id (ตรงกันแค่บังเอิญในบัญชีแรกๆ) ใช้แทน "= ?" ที่เคยรับ account_id มาเทียบตรงๆ
+// มี placeholder ตัวเดียว (รับ account_id) จึงแทนที่ตำแหน่งเดิมได้โดยไม่ต้องเปลี่ยนลำดับพารามิเตอร์
+const STUDENT_ID_OF_ACCOUNT_SQL =
+    "(SELECT s.student_id FROM student s JOIN account a ON a.person_id = s.person_id WHERE a.account_id = ?)";
+
+// สถานะที่ห้ามแก้นัดหมาย/ช่าง/ครุภัณฑ์ของเคสอีก: 4 ถูกปฏิเสธ/ยกเลิก, 6 สำเร็จ, 8 ซ่อมไม่สำเร็จ (ปิดงานแล้ว) และ 7 ยื่นอุทธรณ์
+// รอตัดสิน — สถานะ 3 (ส่งงานรอนักศึกษายืนยัน) ยังแก้ได้ เพราะอาจต้องเบิกครุภัณฑ์เพิ่มหลังซ่อมเสร็จ
+const SCHEDULE_LOCKED_STATUS_IDS = [4, 6, 7, 8];
+const SCHEDULE_LOCKED_MESSAGE = "เคสนี้ปิดงานแล้วหรืออยู่ระหว่างรอตัดสินคำร้องอุทธรณ์ แก้ไขนัดหมายและครุภัณฑ์ไม่ได้";
+
 // ช่วงชั่วโมงของแต่ละช่วงเวลา ให้ตรงกับ timeslotLabel (<13 = 09-11, 13-14 = 13-15, >=15 = 15-17)
 // นับเป็นช่วงแทนการเทียบชั่วโมงเป๊ะๆ เผื่อ appointment_date ของเคสเก่าไม่ได้เก็บชั่วโมงเริ่มพอดี
 function slotHourRange(slotHour) {
@@ -102,6 +113,16 @@ async function isRevisionCase(conn, requestId) {
         [requestId]
     );
     return Number(rows[0].total) > 0;
+}
+
+// รอบปัจจุบันของเคส = จำนวนคำร้องอุทธรณ์ที่อนุมัติแล้ว (0 = ซ่อมครั้งแรก, 1-2 = แก้ไขครั้งที่ 1-2) ตรงกับ currentRound
+// ที่พอร์ทัลคำนวณ — ใช้ผูกรายการเบิกครุภัณฑ์กับรอบ เพื่อให้รอบเก่าเก็บเป็นประวัติ ไม่ถูกลบ/คืนสต็อกตอนนัดรอบใหม่
+async function currentRevisionRound(conn, requestId) {
+    const rows = await conn.query(
+        "SELECT COUNT(*) AS total FROM repair_complaint WHERE request_id = ? AND decision = 'approved'",
+        [requestId]
+    );
+    return Number(rows[0].total);
 }
 
 // หาคิวว่างถัดไปสำหรับจัดนัดหมายอัตโนมัติตอนอนุมัติคำร้อง — ไล่หาวันเริ่มจากวันนี้ (ห้ามย้อนหลัง)
@@ -244,6 +265,27 @@ async function getSlotAvailability(startDate, days, excludeRequestId) {
         if (conn) conn.release();
         return result;
     }
+}
+
+// ส่วนร่วมของการปิดเคสเป็นสถานะ 4 ทุกทาง (เจ้าหน้าที่ปฏิเสธ / เจ้าหน้าที่ยกเลิกตอนซ่อม / นักศึกษายกเลิก) — แต่ละทางยังตรวจ
+// สถานะที่อนุญาตและทำผลข้างเคียงของตัวเองในฟังก์ชันของมันเอง (เช่น คืนครุภัณฑ์) ที่นี่รวมเฉพาะ "บันทึกว่าใครยกเลิกเพราะอะไร"
+// ให้กติกาการบันทึกอยู่ที่เดียว รับ conn จากผู้เรียกเพื่อให้อยู่ใน transaction เดียวกับการเปลี่ยนสถานะ
+async function findModeratorIdOfAccount(conn, accountId) {
+    const rows = await conn.query(
+        "SELECT m.moderator_id FROM account a JOIN moderator m ON m.person_id = a.person_id WHERE a.account_id = ?",
+        [accountId]
+    );
+    return rows[0] ? rows[0].moderator_id : null;
+}
+
+// moderatorId = NULL หมายถึงนักศึกษายกเลิกเอง (คอลัมน์ cancelled_by_moderator_id รับ NULL อยู่แล้ว ไม่ต้องแก้ schema)
+// stepCode ของไทม์ไลน์ต่างกัน: 'cancelled' (เจ้าหน้าที่) / 'student_cancelled' (นักศึกษา) แอปนักศึกษาใช้แยกข้อความ
+async function recordCancellation(conn, requestId, moderatorId, reason, stepCode) {
+    await conn.query(
+        "INSERT INTO repair_cancellation (request_id, cancelled_by_moderator_id, cancel_reason) VALUES (?, ?, ?)",
+        [requestId, moderatorId, reason]
+    );
+    await repairTimeline.insertTimelineStep(conn, requestId, stepCode, reason);
 }
 
 module.exports = {
@@ -553,12 +595,15 @@ module.exports = {
           "   AND tl3.step_code IN ('approved', 'cancelled', 'complaint_approved', 'complaint_rejected') " +
           "   ORDER BY tl3.event_date DESC, tl3.timeline_id DESC LIMIT 1) AS last_decision_step, " +
           "  (SELECT MAX(tl3.event_date) FROM repair_timeline tl3 WHERE tl3.request_id = rr.request_id " +
-          "   AND tl3.step_code IN ('approved', 'cancelled', 'complaint_approved', 'complaint_rejected')) >= NOW() - INTERVAL ? DAY AS is_decision_recent " +
+          "   AND tl3.step_code IN ('approved', 'cancelled', 'complaint_approved', 'complaint_rejected')) >= NOW() - INTERVAL ? DAY AS is_decision_recent, " +
+          // เคยถูกอนุมัติมาก่อนไหม — step 'cancelled' ใช้ร่วมกันทั้ง "ปฏิเสธตอนตรวจสอบ" กับ "เจ้าหน้าที่ยกเลิกตอนกำลังซ่อม" แยกกันที่
+          // ว่ามี step approved นำหน้าหรือไม่ (แบบเดียวกับที่ repair_stepper.dart ใช้) ให้หน้าโฮมขึ้นข้อความให้ตรงเหตุการณ์จริง
+          "  EXISTS (SELECT 1 FROM repair_timeline tl4 WHERE tl4.request_id = rr.request_id AND tl4.step_code = 'approved') AS was_approved " +
           "FROM repair_request rr " +
           "LEFT JOIN repair_request_detail rrd ON rr.request_id = rrd.request_id " +
           "LEFT JOIN repair_type rt ON rrd.repair_type_id = rt.repair_type_id " +
           "LEFT JOIN progress_status ps ON rr.progress_status_id = ps.progress_status_id " +
-          "WHERE rr.student_id = ? " +
+          "WHERE rr.student_id = " + STUDENT_ID_OF_ACCOUNT_SQL + " " +
           "GROUP BY " +
           "  rr.request_id, " +
           "  rr.case_code, " +
@@ -613,7 +658,7 @@ module.exports = {
                 "  (tl.event_date > rr.student_last_seen_at) AS is_unread " +
                 "FROM repair_timeline tl " +
                 "JOIN repair_request rr ON rr.request_id = tl.request_id " +
-                "WHERE rr.student_id = ? AND tl.step_code IN (" + STAFF_STEP_SQL_LIST + ") " +
+                "WHERE rr.student_id = " + STUDENT_ID_OF_ACCOUNT_SQL + " AND tl.step_code IN (" + STAFF_STEP_SQL_LIST + ") " +
                 "ORDER BY tl.event_date DESC, tl.timeline_id DESC " +
                 "LIMIT 30",
                 [accountId]
@@ -622,7 +667,7 @@ module.exports = {
             var countRows = await conn.query(
                 "SELECT COUNT(DISTINCT rr.request_id) AS unread_case_count " +
                 "FROM repair_request rr " +
-                "WHERE rr.student_id = ? AND EXISTS (" +
+                "WHERE rr.student_id = " + STUDENT_ID_OF_ACCOUNT_SQL + " AND EXISTS (" +
                 "  SELECT 1 FROM repair_timeline tl WHERE tl.request_id = rr.request_id " +
                 "  AND tl.step_code IN (" + STAFF_STEP_SQL_LIST + ") AND tl.event_date > rr.student_last_seen_at)",
                 [accountId]
@@ -654,7 +699,10 @@ module.exports = {
 
         try {
             conn = await pool.getConnection();
-            await conn.query("UPDATE repair_request SET student_last_seen_at = NOW() WHERE student_id = ?", [accountId]);
+            await conn.query(
+                "UPDATE repair_request SET student_last_seen_at = NOW() WHERE student_id = " + STUDENT_ID_OF_ACCOUNT_SQL,
+                [accountId]
+            );
             result = { isError: false, data: "", errorMessage: "" };
         } catch (error) {
             result = { isError: true, data: "", errorMessage: "ไม่สามารถอัปเดตสถานะการอ่านได้" };
@@ -685,7 +733,7 @@ module.exports = {
           "LEFT JOIN repair_request_detail rrd ON rr.request_id = rrd.request_id " +
           "LEFT JOIN repair_type rt ON rrd.repair_type_id = rt.repair_type_id " +
           "LEFT JOIN progress_status ps ON rr.progress_status_id = ps.progress_status_id " +
-          "WHERE rr.student_id = ? " +
+          "WHERE rr.student_id = " + STUDENT_ID_OF_ACCOUNT_SQL + " " +
           "AND ps.progress_status_id = ? " +
           "GROUP BY " +
           "  rr.request_id, " +
@@ -717,13 +765,29 @@ module.exports = {
             return result;
         }
     },
-    createRepairRequest: async (studentId, name, phone, roomNumber, repairTypeIds, description, allowEntry) => {
+    // accountId = account_id ของผู้ล็อกอิน (ค่าที่ token เก็บ) — ไม่ใช่ student_id: repair_request.student_id
+    // อ้างอิงตาราง student ซึ่งเลขไม่ตรงกับ account_id (ตรงกันแค่บังเอิญในบัญชีแรกๆ) จึงต้องแปลงก่อน INSERT
+    createRepairRequest: async (accountId, name, phone, roomNumber, repairTypeIds, description, allowEntry) => {
         let conn;
         let result;
 
         try {
             conn = await pool.getConnection();
             await conn.beginTransaction();
+
+            const studentRows = await conn.query(
+                "SELECT s.student_id FROM student s " +
+                "JOIN account a ON a.person_id = s.person_id " +
+                "WHERE a.account_id = ?",
+                [accountId]
+            );
+            if (!studentRows[0]) {
+                await conn.rollback();
+                // กำหนด result ก่อน return เพราะ finally ด้านล่าง return result ทับค่าที่ return ใน try เสมอ
+                result = { isError: true, data: "", errorMessage: "ไม่พบข้อมูลนักศึกษาของบัญชีนี้" };
+                return result;
+            }
+            const studentId = studentRows[0].student_id;
 
             const tempCaseCode = "TEMP-" + Date.now();
 
@@ -814,7 +878,8 @@ module.exports = {
         }
     },
 
-    updateRepairRequest: async (requestId, studentId, name, phone, roomNumber, repairTypeIds, description, allowEntry) => {
+    // accountId = account_id ของผู้ล็อกอิน (ไม่ใช่ student_id) — เทียบเจ้าของเคสผ่านตาราง account/student
+    updateRepairRequest: async (requestId, accountId, name, phone, roomNumber, repairTypeIds, description, allowEntry) => {
         let conn;
         let result;
 
@@ -822,8 +887,10 @@ module.exports = {
             conn = await pool.getConnection();
             await conn.beginTransaction();
 
-            var checkSql = "SELECT progress_status_id FROM repair_request WHERE request_id = ? AND student_id = ?";
-            var checkRows = await conn.query(checkSql, [requestId, studentId]);
+            var checkSql =
+                "SELECT progress_status_id FROM repair_request " +
+                "WHERE request_id = ? AND student_id = " + STUDENT_ID_OF_ACCOUNT_SQL;
+            var checkRows = await conn.query(checkSql, [requestId, accountId]);
 
             if (!checkRows[0] || checkRows[0].progress_status_id !== 1) {
                 await conn.rollback();
@@ -832,6 +899,19 @@ module.exports = {
                     isError: true,
                     data: "",
                     errorMessage: "ไม่สามารถแก้ไขคำร้องที่ได้รับการอนุมัติแล้วได้"
+                };
+
+                return result;
+            }
+
+            // เจ้าหน้าที่เปิดดูคำร้องแล้ว (ขั้น reviewing) ห้ามแก้ต่อ — กติกาเดียวกับคำร้องอุทธรณ์
+            if (await repairTimeline.hasStep(conn, requestId, 'reviewing')) {
+                await conn.rollback();
+
+                result = {
+                    isError: true,
+                    data: "",
+                    errorMessage: "เจ้าหน้าที่เริ่มตรวจสอบคำร้องนี้แล้ว แก้ไขไม่ได้"
                 };
 
                 return result;
@@ -969,14 +1049,7 @@ module.exports = {
             conn = await pool.getConnection();
             await conn.beginTransaction();
 
-            var moderatorSql =
-                "SELECT m.moderator_id " +
-                "FROM account a " +
-                "JOIN moderator m ON m.person_id = a.person_id " +
-                "WHERE a.account_id = ?";
-
-            var moderatorRows = await conn.query(moderatorSql, [accountId]);
-            var moderatorId = moderatorRows[0] ? moderatorRows[0].moderator_id : null;
+            var moderatorId = await findModeratorIdOfAccount(conn, accountId);
 
             // UPDATE มาก่อน INSERT และต้องยังเป็นสถานะ 1 — ถ้านักศึกษายกเลิกตัดหน้าไปแล้วจะไม่เขียนบันทึก
             // การปฏิเสธซ้ำซ้อนลง repair_cancellation
@@ -996,14 +1069,84 @@ module.exports = {
                 return;
             }
 
-            var insertSql =
-                "INSERT INTO repair_cancellation (" +
-                "request_id, cancelled_by_moderator_id, cancel_reason" +
-                ") VALUES (?, ?, ?)";
+            await recordCancellation(conn, requestId, moderatorId, reason, 'cancelled');
 
-            await conn.query(insertSql, [requestId, moderatorId, reason]);
+            await conn.commit();
 
-            await repairTimeline.insertTimelineStep(conn, requestId, 'cancelled', reason);
+            result = {
+                isError: false,
+                data: "",
+                errorMessage: ""
+            };
+        } catch (error) {
+            if (conn) {
+                await conn.rollback();
+            }
+
+            result = {
+                isError: true,
+                data: "",
+                errorMessage: error.message
+            }
+        } finally {
+            if (conn)
+                conn.release();
+
+            return result;
+        }
+    },
+
+    // เจ้าหน้าที่ยกเลิกงานที่อนุมัติแล้วแต่ยังไม่ส่งงาน (สถานะ 2 เท่านั้น) — แยกจาก rejectRepairRequest ที่รับเฉพาะสถานะ 1
+    // ส่งงานแล้ว (3) หรืออยู่รอบแก้ไข (5) ยกเลิกไม่ได้เพราะงานถูกทำไปแล้ว/เป็นสิทธิ์อุทธรณ์ของนักศึกษา ใช้ step 'cancelled'
+    // เดิม เพราะแอปนักศึกษาแยก "ยกเลิกหลังอนุมัติ" จาก "ปฏิเสธตอนตรวจสอบ" ด้วย step approved อยู่แล้ว คืนครุภัณฑ์ที่เบิกไว้
+    // เหมือน cancelAppointment ล็อกแถว FOR UPDATE กันชนกับการกดส่งงานพร้อมกัน
+    cancelInProgressRepairRequest: async (requestId, accountId, reason) => {
+        let conn;
+        let result;
+
+        try {
+            conn = await pool.getConnection();
+            await conn.beginTransaction();
+
+            var caseRows = await conn.query(
+                "SELECT progress_status_id FROM repair_request WHERE request_id = ? FOR UPDATE",
+                [requestId]
+            );
+            if (!caseRows[0] || caseRows[0].progress_status_id !== 2) {
+                await conn.rollback();
+                result = {
+                    isError: true,
+                    data: "",
+                    errorMessage: "ยกเลิกได้เฉพาะงานที่อยู่ระหว่างซ่อมและยังไม่ส่งงาน (อาจถูกส่งงานหรือยกเลิกไปก่อนหน้านี้)"
+                };
+                return;
+            }
+
+            var moderatorId = await findModeratorIdOfAccount(conn, accountId);
+
+            var cancelRound = await currentRevisionRound(conn, requestId);
+            var usageRows = await conn.query(
+                "SELECT equipment_id, quantity_used FROM repair_request_equipment WHERE request_id = ? AND revision_round = ?",
+                [requestId, cancelRound]
+            );
+            for (const usageRow of usageRows) {
+                await conn.query(
+                    "UPDATE equipment SET quantity = quantity + ? WHERE equipment_id = ?",
+                    [usageRow.quantity_used, usageRow.equipment_id]
+                );
+            }
+            await conn.query(
+                "DELETE FROM repair_request_equipment WHERE request_id = ? AND revision_round = ?",
+                [requestId, cancelRound]
+            );
+
+            // ล้าง rushed_at ด้วย — เคสปิดแล้ว ป้าย "ขอเร่งงาน" ไม่ควรค้างอยู่ในหน้าแรก/มอนิเตอร์ของเจ้าหน้าที่
+            await conn.query(
+                "UPDATE repair_request SET progress_status_id = 4, rushed_at = NULL WHERE request_id = ?",
+                [requestId]
+            );
+
+            await recordCancellation(conn, requestId, moderatorId, reason, 'cancelled');
 
             await conn.commit();
 
@@ -1049,6 +1192,17 @@ module.exports = {
                 [requestId]
             );
             var previous = previousRows[0] || { technician_id: null, appointment_date: null };
+
+            // ตรวจที่ backend ซ้ำอีกชั้นจากหน้าจอ — เคสที่ปิดงานแล้ว/รอตัดสินอุทธรณ์ห้ามแก้นัดหมายและเบิกครุภัณฑ์ (ดู SCHEDULE_LOCKED_STATUS_IDS)
+            var lockCheckRows = await conn.query(
+                "SELECT progress_status_id FROM repair_request WHERE request_id = ?",
+                [requestId]
+            );
+            if (lockCheckRows[0] && SCHEDULE_LOCKED_STATUS_IDS.includes(lockCheckRows[0].progress_status_id)) {
+                await conn.rollback();
+                result = { isError: true, data: "", errorMessage: SCHEDULE_LOCKED_MESSAGE };
+                return;
+            }
 
             // ห้ามนัดหมายย้อนหลัง — ต้องไม่ก่อนวันนี้ และไม่ก่อนวันที่เจ้าหน้าที่อนุมัติ (คำร้องแจ้งซ่อม
             // ครั้งแรก หรือคำร้องอุทธรณ์รอบแก้ไข แล้วแต่ว่าเคสนี้เพิ่งผ่านอนุมัติแบบไหนมาล่าสุด)
@@ -1126,9 +1280,12 @@ module.exports = {
                 }
             }
 
+            // เบิก/คืน/แทนที่เฉพาะรายการของ "รอบปัจจุบัน" (revision_round) — รายการของรอบก่อนหน้าคือประวัติที่ใช้ไปจริง
+            // ต้องไม่ถูกคืนสต็อกหรือลบตอนนัดหมายรอบแก้ไข
+            var usageRound = await currentRevisionRound(conn, requestId);
             var oldUsageRows = await conn.query(
-                "SELECT equipment_id, quantity_used FROM repair_request_equipment WHERE request_id = ?",
-                [requestId]
+                "SELECT equipment_id, quantity_used FROM repair_request_equipment WHERE request_id = ? AND revision_round = ?",
+                [requestId, usageRound]
             );
 
             // คืนสต็อกเดิมทั้งหมดก่อน — ทำให้ตัวเลขคงเหลือกลับไปเป็น "ก่อนเคยเบิกอะไรเลย" ชั่วคราว
@@ -1166,12 +1323,15 @@ module.exports = {
                 );
             }
 
-            await conn.query("DELETE FROM repair_request_equipment WHERE request_id = ?", [requestId]);
+            await conn.query(
+                "DELETE FROM repair_request_equipment WHERE request_id = ? AND revision_round = ?",
+                [requestId, usageRound]
+            );
 
             for (const usage of newUsage) {
                 await conn.query(
-                    "INSERT INTO repair_request_equipment (request_id, equipment_id, quantity_used) VALUES (?, ?, ?)",
-                    [requestId, usage.equipment_id, usage.quantity]
+                    "INSERT INTO repair_request_equipment (request_id, equipment_id, quantity_used, revision_round) VALUES (?, ?, ?, ?)",
+                    [requestId, usage.equipment_id, usage.quantity, usageRound]
                 );
             }
 
@@ -1250,9 +1410,22 @@ module.exports = {
             await conn.beginTransaction();
 
             // ลบนัดหมาย = คืนครุภัณฑ์ที่เคยเบิกไว้ทั้งหมดกลับเข้าคงคลัง แล้วล้างรายการเบิกทิ้ง
-            var oldUsageRows = await conn.query(
-                "SELECT equipment_id, quantity_used FROM repair_request_equipment WHERE request_id = ?",
+            // (เฉพาะของรอบปัจจุบันที่กำลังยกเลิกนัด — รอบก่อนหน้าใช้ของไปจริงแล้ว เก็บไว้เป็นประวัติ)
+            // เคสที่ปิดงานแล้ว/รอตัดสินอุทธรณ์ลบนัดหมายไม่ได้ (ตรวจก่อนคืนสต็อกหรือแก้อะไรทั้งสิ้น)
+            var cancelLockRows = await conn.query(
+                "SELECT progress_status_id FROM repair_request WHERE request_id = ?",
                 [requestId]
+            );
+            if (cancelLockRows[0] && SCHEDULE_LOCKED_STATUS_IDS.includes(cancelLockRows[0].progress_status_id)) {
+                await conn.rollback();
+                result = { isError: true, data: "", errorMessage: SCHEDULE_LOCKED_MESSAGE };
+                return;
+            }
+
+            var cancelRound = await currentRevisionRound(conn, requestId);
+            var oldUsageRows = await conn.query(
+                "SELECT equipment_id, quantity_used FROM repair_request_equipment WHERE request_id = ? AND revision_round = ?",
+                [requestId, cancelRound]
             );
 
             for (const oldRow of oldUsageRows) {
@@ -1262,7 +1435,10 @@ module.exports = {
                 );
             }
 
-            await conn.query("DELETE FROM repair_request_equipment WHERE request_id = ?", [requestId]);
+            await conn.query(
+                "DELETE FROM repair_request_equipment WHERE request_id = ? AND revision_round = ?",
+                [requestId, cancelRound]
+            );
 
             await conn.query("UPDATE repair_request SET technician_id = NULL WHERE request_id = ?", [requestId]);
             await writeCurrentAppointment(conn, requestId, null);
@@ -1494,14 +1670,9 @@ module.exports = {
 
             var cancelReason = reason || 'นักศึกษายกเลิกคำร้องเอง';
 
-            // บันทึกลงตารางยกเลิกเดียวกับที่เจ้าหน้าที่ปฏิเสธใช้ — cancelled_by_moderator_id เป็น NULL = ผู้ยกเลิกคือนักศึกษา
-            // (คอลัมน์รับ NULL ได้อยู่แล้ว จึงไม่ต้องแก้ schema) cancel_reason เป็น NOT NULL จึงใส่ข้อความ default ให้
-            await conn.query(
-                "INSERT INTO repair_cancellation (request_id, cancelled_by_moderator_id, cancel_reason) VALUES (?, NULL, ?)",
-                [requestId, cancelReason]
-            );
-
-            await repairTimeline.insertTimelineStep(conn, requestId, 'student_cancelled', cancelReason);
+            // บันทึกลงตารางยกเลิกเดียวกับที่เจ้าหน้าที่ปฏิเสธใช้ — moderatorId เป็น NULL = ผู้ยกเลิกคือนักศึกษา
+            // cancel_reason เป็น NOT NULL จึงใส่ข้อความ default ให้ข้างบน
+            await recordCancellation(conn, requestId, null, cancelReason, 'student_cancelled');
 
             await notification.createNotification(
                 conn, requestId, 'student_cancelled',

@@ -65,6 +65,42 @@ module.exports = {
             return result;
         }
     },
+    // โปรไฟล์ของเจ้าหน้าที่ที่ล็อกอินอยู่ (ชื่อ/ตำแหน่ง/รูป) สำหรับแสดงที่ topbar ของพอร์ทัล — ตำแหน่งใช้ LEFT JOIN
+    // เพราะ moderator.position_id เป็น NULL ได้ ไม่ควรทำให้ทั้งโปรไฟล์หายไปแค่เพราะยังไม่ได้ระบุตำแหน่ง
+    getModeratorProfile: async (accountId) => {
+        let conn;
+        let result;
+
+        try {
+            conn = await pool.getConnection();
+
+            var sql = "SELECT p.person_id, p.firstname, p.lastname, p.profile_image AS image_url, pos.position_name " +
+                      "FROM account a " +
+                      "INNER JOIN person p ON a.person_id = p.person_id " +
+                      "INNER JOIN moderator m ON m.person_id = p.person_id " +
+                      "LEFT JOIN position pos ON pos.position_id = m.position_id " +
+                      "WHERE a.account_id = ?";
+
+            var rows = await conn.query(sql, [accountId]);
+
+            result = {
+                isError: false,
+                data: rows[0] ?? null,
+                errorMessage: ""
+            };
+        } catch (error) {
+            result = {
+                isError: true,
+                data: "",
+                errorMessage: error.message
+            };
+        } finally {
+            if (conn)
+                conn.release();
+
+            return result;
+        }
+    },
     // ใช้ตรวจว่า person_id ที่ส่งมาเป็นของบัญชีที่ล็อกอินอยู่ไหม (token เก็บแค่ account_id ไม่มี person_id)
     // data = person_id หรือ null ถ้าไม่พบบัญชี
     getPersonIdByAccountId: async (accountId) => {
